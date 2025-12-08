@@ -17,7 +17,7 @@ def scrape(URL):
 
         soup = BeautifulSoup(response.text, "xml")
         return classify(soup)
-    except Exception as e:
+    except Exception:
         return f"Error: could not find bill"
 
 
@@ -81,7 +81,6 @@ def classify(soup):
                 return definitions_text
     # prints out as unformmated definitions section. Needs some work to handle end of definition section -- might be weird edge cases
     return "couldn't find definitions section"
-
 
 if __name__ == "__main__":
     URL = input("Enter XML URL: ")
