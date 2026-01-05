@@ -1,4 +1,5 @@
 from pydoc import text
+from socket import create_connection
 import mysql.connector
 from mysql.connector import Error
 from bs4 import BeautifulSoup
@@ -33,7 +34,7 @@ def retreive_txt():
             print("No more HTML to process")
             return None
         
-        id, raw_content, source_url = result 
+        id_val, raw_content, source_url = result 
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with IF statements to handle other formats and assign soup
 
         if "congress.gov" in source_url.lower(): # otherwise we need to apply the previous scraping ALG, just pick up everything
@@ -46,7 +47,7 @@ def retreive_txt():
 
                 txt_link = wait.until(EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "TXT")))
                 txt_link.click()
-                time.sleep(3)
+                time.sleep(2)
             except:
                 pass 
 
@@ -57,16 +58,16 @@ def retreive_txt():
                 start_index = all_text.find(start)
                 end_index = all_text.find(end)
                 body = all_text[start_index : end_index]
-                return body
+                return store_txt(connection, id_val, body)
                 driver.quit()
 
-            return all_text
+            return store_txt(connection, id_val, all_text)
             driver.quit()
         else:
             for junk in soup (["script", "style", "header", "footer", "nav"]):
                 junk.decompose()
             cleaned_text = soup.get_text(separator= " ", strip= True)
-            return cleaned_text
+            return store_txt(connection, id_val,cleaned_text)
 
     
     except Error as e:
@@ -77,8 +78,29 @@ def retreive_txt():
             if cursor:
                 cursor.close()
             connection.close()
+def store_txt(connection, raw_id, clean_text):
+    try: 
+        cursor = connection.cursor()
+        insert_query = "INSERT INTO leg_processed (raw_doc_id, clean_text) VALUES (%s, %s)"
+        cursor.execute(insert_query, (raw_id,clean_text))
+        connection.commit()
+        return cursor.lastrowid
+
+    except Exception as e:
+        print(f"Error storing processed text: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+
 # if __name__ == "__main__":
-#     print (retreive_txt())
+#     while True:
+        
+#         result =  retreive_txt()
+        
+#         if result is None:
+#             print("All bills have been processed")
+#             break
+#         time.sleep(1)
 
 
 ## NOTES: works for congress.gov. Needs exception handling and output processing for other sources (as it's just outputting soup output)
