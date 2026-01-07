@@ -14,12 +14,15 @@ import time
 
 load_dotenv()
 pw = os.getenv("password")
+host = os.getenv("host_name")
+user = os.getenv("user_name")
+database = os.getenv("database_name")
 
 def retreive_txt():
     connection = None
     try:
         from dbconnection import create_connection
-        connection = create_connection("localhost", "root", pw, "scraping")
+        connection = create_connection(host,user , pw, database)
         cursor = connection.cursor()
         query = """
         SELECT h.id, h.raw_content, h.source_url 
@@ -35,10 +38,10 @@ def retreive_txt():
             return None
         
         id_val, raw_content, source_url = result 
-        soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with IF statements to handle other formats and assign soup
+        soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
 
         if "congress.gov" in source_url.lower(): # otherwise we need to apply the previous scraping ALG, just pick up everything
-            driver = webdriver.Firefox()
+            driver = webdriver.Firefox() #change if using chrome etc
             try: 
                 driver.get(source_url)
                 wait = WebDriverWait(driver, 2)
@@ -58,16 +61,16 @@ def retreive_txt():
                 start_index = all_text.find(start)
                 end_index = all_text.find(end)
                 body = all_text[start_index : end_index]
-                return store_txt(connection, id_val, body)
+                return store_txt(connection, id_val, body, source_url)
                 driver.quit()
 
-            return store_txt(connection, id_val, all_text)
+            return store_txt(connection, id_val, all_text, source_url)
             driver.quit()
         else:
             for junk in soup (["script", "style", "header", "footer", "nav"]):
                 junk.decompose()
             cleaned_text = soup.get_text(separator= " ", strip= True)
-            return store_txt(connection, id_val,cleaned_text)
+            return store_txt(connection, id_val, cleaned_text, source_url)
 
     
     except Error as e:
@@ -78,34 +81,30 @@ def retreive_txt():
             if cursor:
                 cursor.close()
             connection.close()
-def store_txt(connection, raw_id, clean_text):
+def store_txt(connection, raw_id, clean_text, source_url=None):
     try: 
         cursor = connection.cursor()
         insert_query = "INSERT INTO leg_processed (raw_doc_id, clean_text) VALUES (%s, %s)"
         cursor.execute(insert_query, (raw_id,clean_text))
         connection.commit()
-        return cursor.lastrowid
+        processed_doc_id = cursor.lastrowid
+        
+        # Pipeline: After storing text, trigger definition extraction
+        from def_storer import store_defs
+        store_defs(processed_doc_id, clean_text, source_url)
+        
+        return processed_doc_id
 
     except Exception as e:
         print(f"Error storing processed text: {e}")
+        return None
     finally:
         if cursor:
             cursor.close()
 
-# if __name__ == "__main__":
-#     while True:
-        
-#         result =  retreive_txt()
-        
-#         if result is None:
-#             print("All bills have been processed")
-#             break
-#         time.sleep(1)
-
-
-## NOTES: works for congress.gov. Needs exception handling and output processing for other sources (as it's just outputting soup output)
-## returned value needs to be saved in database (table 2) and lastrow row id needs to be returned. Also make sure this traverses the 
-## entire database. Changes on Jan 4. 
+# NOTES: works for congress.gov. Needs exception handling and output processing for other sources (as it's just outputting soup output)
+# returned value needs to be saved in database (table 2) and lastrow row id needs to be returned. Also make sure this traverses the 
+# entire database. Changes on Jan 4. 
 
 
 

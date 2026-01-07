@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 pw = os.getenv("password")
-connection_setup = create_connection("localhost", "root", pw, "scraping")
+host = os.getenv("host_name")
+user = os.getenv("user_name")
+database = os.getenv("database_name")
+connection_setup = create_connection(host, user, pw, database)
 
 
 # 1. leg_html
@@ -76,7 +79,6 @@ def table_create():
                         processed_doc_id INT,
                         term VARCHAR(255),
                         definition_text TEXT,
-                        confidence_score FLOAT,
                         FOREIGN KEY (processed_doc_id) REFERENCES leg_processed(id) ON DELETE CASCADE
                     ) ENGINE=InnoDB;
                 """)

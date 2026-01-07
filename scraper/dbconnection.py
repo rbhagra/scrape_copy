@@ -1,7 +1,7 @@
 import mysql.connector
 from mysql.connector import Error
-import pandas as pd
 
+### IGNORE. USED FOR CONNECTION SETUP
 def create_connection(host_name, user_name, password, database_name):
     try:
         connection = mysql.connector.connect(

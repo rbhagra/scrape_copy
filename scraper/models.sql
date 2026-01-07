@@ -1,8 +1,0 @@
-CREATE DATABASE legislation;
-USE legislation
-CREATE TABLE IF NOT EXISTS text (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    url TEXT NOT NULL,
-    title TEXT,
-    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
