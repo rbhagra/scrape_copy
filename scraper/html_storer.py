@@ -20,7 +20,7 @@ def retrieve_html(url):
         return None
 
 
-def store_html(url):
+def store_html(url, allow_duplicates=False): #stores html 
     connection = None
     cursor = None
     html_content = retrieve_html(url)
@@ -29,13 +29,24 @@ def store_html(url):
     try:
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
+        
+        # Check if URL already exists in database, only check to avoid duplicates. Can work in more sophisticated checks.
+        if not allow_duplicates: # runs check only if user decides to not allow duplicates. Duplicates likely allowed for versions of bills.
+            check_query = "SELECT id FROM leg_html WHERE source_url = %s"
+            cursor.execute(check_query, (url,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                print(f"Bill already exists in database (ID: {existing[0]}). Skipping duplicate.")
+                return existing[0]
+        
         insert_query = "INSERT INTO leg_html (source_url, raw_content) VALUES (%s, %s)"
         cursor.execute(insert_query, (url, html_content))
         connection.commit()
         html_id = cursor.lastrowid
         
         from txt_storer import retreive_txt
-        retreive_txt()
+        retreive_txt(allow_duplicates=allow_duplicates)
         
         return html_id
 

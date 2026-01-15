@@ -1,0 +1,7 @@
+Common errors:
+
+Adjustments:
+
+- adjusted to only copy from section 1 onwards of CA bill to avoid pre-bill text.
+- created check for duplicates and an option to allow / disallow duplicates (of both HTML storing and txt storing).
+  - choice is through boolean flag in main and checks for truth of flag in html_store and txt_store

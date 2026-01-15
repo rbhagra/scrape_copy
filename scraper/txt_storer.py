@@ -10,7 +10,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
-
+from bs4 import XMLParsedAsHTMLWarning
+import warnings
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 load_dotenv()
 pw = os.getenv("password")
@@ -18,7 +20,7 @@ host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
 
-def retreive_txt():
+def retreive_txt(allow_duplicates=False):
     connection = None
     try:
         from dbconnection import create_connection
@@ -40,7 +42,7 @@ def retreive_txt():
         id_val, raw_content, source_url = result 
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
 
-        if "congress.gov" in source_url.lower(): # otherwise we need to apply the previous scraping ALG, just pick up everything
+        if "congress.gov" in source_url.lower(): #checks for congress.gov to utilize TXT feature via selenium. Else deafults to processing HTML via BS
             driver = webdriver.Firefox() #change if using chrome etc
             try: 
                 driver.get(source_url)
@@ -61,16 +63,22 @@ def retreive_txt():
                 start_index = all_text.find(start)
                 end_index = all_text.find(end)
                 body = all_text[start_index : end_index]
-                return store_txt(connection, id_val, body, source_url)
+                return store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
                 driver.quit()
 
-            return store_txt(connection, id_val, all_text, source_url)
+            return store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
             driver.quit()
         else:
             for junk in soup (["script", "style", "header", "footer", "nav"]):
                 junk.decompose()
             cleaned_text = soup.get_text(separator= " ", strip= True)
-            return store_txt(connection, id_val, cleaned_text, source_url)
+            if "legislature.ca.gov" in source_url.lower(): # checks for ca bills in order to filter out preamble to bill 
+                bill_start = "SECTION 1." # heuristic for start of bill 
+                bill_start_index = cleaned_text.find(bill_start)
+                cleaned_text_adjusted = cleaned_text[bill_start_index :]
+                return store_txt(connection,id_val,cleaned_text_adjusted, source_url, allow_duplicates=allow_duplicates) # adds modified to database
+            else:
+                return store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
 
     
     except Error as e:
@@ -81,17 +89,31 @@ def retreive_txt():
             if cursor:
                 cursor.close()
             connection.close()
-def store_txt(connection, raw_id, clean_text, source_url=None):
+def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False): # accepts duplicates flag to determine wheter to store text that already exists
     try: 
         cursor = connection.cursor()
+        
+        # Check if this raw_id already has processed text (avoid duplicate processing)
+        if not allow_duplicates: # skips check if duplicates are allowed by user.
+            check_query = "SELECT id FROM leg_processed WHERE raw_doc_id = %s"
+            cursor.execute(check_query, (raw_id,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                print(f"Bill text already processed (processed_id: {existing[0]}). Skipping duplicate.")
+                return existing[0]
+        
         insert_query = "INSERT INTO leg_processed (raw_doc_id, clean_text) VALUES (%s, %s)"
         cursor.execute(insert_query, (raw_id,clean_text))
         connection.commit()
         processed_doc_id = cursor.lastrowid
         
-        # Pipeline: After storing text, trigger definition extraction
-        from def_storer import store_defs
-        store_defs(processed_doc_id, clean_text, source_url)
+        print("Bill text stored.")
+        
+        # Pipeline: After storing text, trigger definition extraction skip for now while def section in development
+
+        # from def_storer import store_defs
+        # store_defs(processed_doc_id, clean_text, source_url)
         
         return processed_doc_id
 

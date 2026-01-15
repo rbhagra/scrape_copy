@@ -10,7 +10,7 @@ def create_connection(host_name, user_name, password, database_name):
             password=password,
             database=database_name
         )
-        print("Connection established")
+        # Connection established - no print to reduce overall nosie
 
     except Error as e:
         print("Error while connecting to MySQL", e)
