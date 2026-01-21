@@ -20,6 +20,122 @@ host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
 
+# Minimum character threshold for valid bill text
+MIN_BILL_TEXT_LENGTH = 500
+
+def is_dynamically_loaded(raw_content, soup):
+    """
+    Detect if a page loads  bill content dynamically.
+    Returns true if the page may need selenium to fetch content.
+    """
+    # Check 1: Look for JavaScript that loads content dynamically
+    js_loading_indicators = [
+        'loadBillJSON',           # Utah
+        'loadContent',            # Generic
+        'fetchBillText',          # Generic
+        'getBillData',            # Generic
+        'ajax',                   # jQuery AJAX calls
+        '$.get(',                 # jQuery GET
+        '$.post(',                # jQuery POST
+        'fetch(',                 # Modern fetch API
+        'XMLHttpRequest',         # XHR
+        'document.ready',         # jQuery ready with dynamic content
+        'componentDidMount',      # React
+        'mounted()',              # Vue
+        'ngOnInit',               # Angular
+    ]
+    
+    for indicator in js_loading_indicators:
+        if indicator.lower() in raw_content.lower():
+            # filter out analytics js
+            script_tags = soup.find_all('script')
+            for script in script_tags:
+                script_text = script.string or ''
+                if indicator.lower() in script_text.lower():
+                    # indicates js that loads content dynamically
+                    return True
+    
+    # Check 2: Empty content containers that should have bill text
+    empty_container_ids = ['billbox', 'bill-text', 'billText', 'bill-content', 'legislation-text', 'main-content']
+    for container_id in empty_container_ids:
+        container = soup.find(id=container_id)
+        if container:
+            container_text = container.get_text(strip=True)
+            if len(container_text) < 100:  
+                return True
+            # checks for mistmatch between html and text in terms of length.
+        body = soup.find('body')
+    if body:
+        # Remove scripts and styles for text check
+        for tag in body.find_all(['script', 'style', 'nav', 'header', 'footer']):
+            tag.decompose()
+        body_text = body.get_text(strip=True)
+        
+        # If body has lots of HTML structure but little text, likely dynamic
+        html_length = len(raw_content)
+        text_length = len(body_text)
+        
+        # If HTML is large but text is small, content is probably loaded dynamically
+        if html_length > 4000 and text_length < MIN_BILL_TEXT_LENGTH:
+            return True
+    
+    return False
+
+def fetch_with_selenium(source_url): #general selenium function for fetching text from page, not specific to congress.gov. More robust than beautifulsoup to attempt to assure accuracy.
+    """
+    Use Selenium to fetch page content after JavaScript has rendered.
+    Returns the page text or None if failed.
+    """
+    driver = None
+    try:
+        driver = webdriver.Firefox()
+        driver.get(source_url)
+        
+        
+        wait = WebDriverWait(driver, 10)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        
+        # wait for page load 
+        time.sleep(4)
+        
+        # searching containers 
+        bill_text = ""
+        
+        # List of common bill content container IDs/classes to check
+        content_selectors = [
+            (By.ID, "billbox"),
+            (By.ID, "bill-text"),
+            (By.ID, "billText"),
+            (By.ID, "bill-content"),
+            (By.ID, "legislation-text"),
+            (By.ID, "main-content"),
+            (By.CLASS_NAME, "bill-text"),
+            (By.CLASS_NAME, "legislation-content"),
+            (By.TAG_NAME, "article"),
+        ]
+        
+        for selector_type, selector_value in content_selectors:
+            try:
+                element = driver.find_element(selector_type, selector_value)
+                element_text = element.text.strip()
+                if len(element_text) > len(bill_text):
+                    bill_text = element_text
+            except:
+                continue
+        
+        # full body text if not found in container
+        if len(bill_text) < MIN_BILL_TEXT_LENGTH:
+            bill_text = driver.find_element(By.TAG_NAME, "body").text
+        
+        return bill_text
+        
+    except Exception as e:
+        print(f"Selenium error: {e}")
+        return None
+    finally:
+        if driver:
+            driver.quit()
+
 def retreive_txt(allow_duplicates=False):
     connection = None
     try:
@@ -57,6 +173,7 @@ def retreive_txt(allow_duplicates=False):
                 pass 
 
             all_text = driver.find_element(By.TAG_NAME, "body").text
+            driver.quit()
             start = "<DOC>"
             end ="<all>"
             if start in all_text and end in all_text:
@@ -64,31 +181,61 @@ def retreive_txt(allow_duplicates=False):
                 end_index = all_text.find(end)
                 body = all_text[start_index : end_index]
                 return store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
-                driver.quit()
 
             return store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
-            driver.quit()
+        
+        # For all other sites, first try BeautifulSoup, then check if content is dynamically loaded
         else:
-            for junk in soup (["script", "style", "header", "footer", "nav"]):
+            # Create a copy of soup for detection (original soup will be modified)
+            soup_copy = BeautifulSoup(raw_content, "lxml")
+            
+            # Remove junk tags for text extraction
+            for junk in soup.find_all(["script", "style", "header", "footer", "nav"]):
                 junk.decompose()
-            cleaned_text = soup.get_text(separator= " ", strip= True)
-            if "legislature.ca.gov" in source_url.lower(): # checks for ca bills in order to filter out preamble to bill 
-                bill_start = "SECTION 1." # heuristic for start of bill 
+            cleaned_text = soup.get_text(separator=" ", strip=True)
+            
+            # Check if content appears to be dynamically loaded
+            needs_selenium = is_dynamically_loaded(raw_content, soup_copy)
+            
+            # Also check if extracted text is too short (likely incomplete), both pass to selenimum 
+            if len(cleaned_text) < MIN_BILL_TEXT_LENGTH:
+                needs_selenium = True
+            
+            # pass to general selenium extractor. 
+            if needs_selenium:
+                selenium_text = fetch_with_selenium(source_url)
+                
+                if selenium_text and len(selenium_text) > len(cleaned_text):
+                    cleaned_text = selenium_text
+                else:
+                    print(f"Altenative method for dybamic loading did not improve results, using original text.")
+            
+            # Site-specific post-processing
+            if "legislature.ca.gov" in source_url.lower():
+                bill_start = "SECTION 1."
                 bill_start_index = cleaned_text.find(bill_start)
-                cleaned_text_adjusted = cleaned_text[bill_start_index :]
-                return store_txt(connection,id_val,cleaned_text_adjusted, source_url, allow_duplicates=allow_duplicates) # adds modified to database
-            else:
-                return store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
+                if bill_start_index != -1:
+                    cleaned_text = cleaned_text[bill_start_index:]
+        
+            
+            return store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
 
     
     except Error as e:
         print(f"Error in database operations: {e}")
         return None
     finally:
-        if connection and connection.is_connected():
+        try: # handles unread results from query for duplicates, occurs when duplicate allowed once and multiple ids accesible for each URL
+
             if cursor:
+                # Consume any unread results before closing
+                cursor.fetchall() if cursor.with_rows else None
                 cursor.close()
-            connection.close()
+            if connection and connection.is_connected():
+                connection.close()
+        except:
+            pass
+
 def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False): # accepts duplicates flag to determine wheter to store text that already exists
     try: 
         cursor = connection.cursor()
@@ -120,9 +267,13 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
     except Exception as e:
         print(f"Error storing processed text: {e}")
         return None
-    finally:
-        if cursor:
-            cursor.close()
+    finally: #ensures cursor is closed even with thrown error for duplicates
+        try:
+            if cursor:
+                cursor.fetchall() if cursor.with_rows else None
+                cursor.close()
+        except:
+            pass
 
 # NOTES: works for congress.gov. Needs exception handling and output processing for other sources (as it's just outputting soup output)
 # returned value needs to be saved in database (table 2) and lastrow row id needs to be returned. Also make sure this traverses the 

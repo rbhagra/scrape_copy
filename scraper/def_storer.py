@@ -65,12 +65,12 @@ def extract_definitions_from_text(text, source_url=None):
 def store_defs(processed_doc_id, clean_text, source_url=None):
     connection = None
     cursor = None
-    
+
     try:
         from dbconnection import create_connection
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
-        
+            
         # queries source URL and raw_content from database
         query = """
             SELECT h.source_url, h.raw_content

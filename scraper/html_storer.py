@@ -54,10 +54,15 @@ def store_html(url, allow_duplicates=False): #stores html
         print(f"Error in database insertion: '{e}'")
         return None
     finally:
-        if connection and connection.is_connected():
+        try:
             if cursor:
+                # Consume any unread results before closing
+                cursor.fetchall() if cursor.with_rows else None
                 cursor.close()
-            connection.close()
+            if connection and connection.is_connected():
+                connection.close()
+        except:
+            pass
 
 
 

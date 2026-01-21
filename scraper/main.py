@@ -95,7 +95,7 @@ if __name__ == "__main__":
     ALLOW_DUPLICATES = True
     
     # Option 1: Process a new URL (full pipeline: HTML → Text → Definitions)
-    url = "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202320240SB1047"
+    url = "https://capitol.texas.gov/tlodocs/89R/billtext/pdf/HB00149I.pdf"
     process_new_url(url, allow_duplicates=ALLOW_DUPLICATES)
     
     # Option 2: Process all existing unprocessed HTML records (Text → Definitions)
