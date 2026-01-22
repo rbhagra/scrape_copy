@@ -12,6 +12,19 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 from bs4 import XMLParsedAsHTMLWarning
 import warnings
+import requests
+import io
+try:
+    import PyPDF2
+    PDF_LIB_AVAILABLE = True
+except ImportError:
+    try:
+        import pdfplumber
+        PDF_LIB_AVAILABLE = True
+    except ImportError:
+        PDF_LIB_AVAILABLE = False
+        print("Warning: NO PDF LIBRARY FOUND")
+
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 load_dotenv()
@@ -22,6 +35,76 @@ database = os.getenv("database_name")
 
 # Minimum character threshold for valid bill text
 MIN_BILL_TEXT_LENGTH = 500
+
+def is_pdf_url(url):
+    """
+    Check if a URL points to a PDF file.
+    Returns True if URL ends with .pdf or contains PDF indicators.
+    """
+    url_lower = url.lower()
+    # Check file extension
+    if url_lower.endswith('.pdf'):
+        return True
+    # Check URL parameters that might indicate PDF
+    if '.pdf' in url_lower or 'format=pdf' in url_lower or 'type=pdf' in url_lower:
+        return True
+    return False
+
+def extract_text_from_pdf(url):
+    """
+    Download PDF from URL and extract text content.
+    Returns extracted text as string, or None if failed.
+    """
+    if not PDF_LIB_AVAILABLE:
+        print(f"cannot extract text from pdf")
+        return None
+    
+    try:
+        # Download PDF
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Check if response is actually a PDF
+        content_type = response.headers.get('Content-Type', '').lower()
+        if 'pdf' not in content_type and not url.lower().endswith('.pdf'):
+            return None
+        
+        # Read PDF content
+        pdf_file = io.BytesIO(response.content)
+        
+        # Try PyPDF2 first
+        try:
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            text_content = []
+            for page_num in range(len(pdf_reader.pages)):
+                page = pdf_reader.pages[page_num]
+                text_content.append(page.extract_text())
+            return '\n'.join(text_content)
+        except:
+            # Fallback to pdfplumber if PyPDF2 fails
+            try:
+                try:
+                    import pdfplumber
+                except ImportError:
+                    print("cannot parse via 2 methods")
+                    return None
+                with pdfplumber.open(pdf_file) as pdf:
+                    text_content = []
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text_content.append(page_text)
+                return '\n'.join(text_content)
+            except Exception as e:
+                print(f"Error extracting text from PDF with pdfplumber: {e}")
+                return None
+                
+    except requests.RequestException as e:
+        print(f"Error downloading PDF: {e}")
+        return None
+    except Exception as e:
+        print(f"Error processing PDF: {e}")
+        return None
 
 def is_dynamically_loaded(raw_content, soup):
     """
@@ -156,6 +239,17 @@ def retreive_txt(allow_duplicates=False):
             return None
         
         id_val, raw_content, source_url = result 
+        
+        # Check if URL is a PDF - handle separately
+        if is_pdf_url(source_url):
+            print("scraping text via pdf")
+            pdf_text = extract_text_from_pdf(source_url)
+            if pdf_text and len(pdf_text.strip()) > 0:
+                return store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+            else:
+                print(f"Failed to extract text from PDF: {source_url}")
+                return None
+        
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
 
         if "congress.gov" in source_url.lower(): #checks for congress.gov to utilize TXT feature via selenium. Else deafults to processing HTML via BS
