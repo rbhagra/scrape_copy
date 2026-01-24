@@ -1,5 +1,7 @@
 from pydoc import text
+from selenium.webdriver.firefox.webdriver import WebDriver
 from socket import create_connection
+from typing import Any
 import mysql.connector
 from mysql.connector import Error
 from bs4 import BeautifulSoup
@@ -14,6 +16,11 @@ from bs4 import XMLParsedAsHTMLWarning
 import warnings
 import requests
 import io
+import pymupdf
+import pymupdf4llm
+from selenium.common.exceptions import TimeoutException
+import logging
+logger = logging.getLogger(__name__)
 try:
     import PyPDF2
     PDF_LIB_AVAILABLE = True
@@ -52,59 +59,25 @@ def is_pdf_url(url):
 
 def extract_text_from_pdf(url):
     """
-    Download PDF from URL and extract text content.
-    Returns extracted text as string, or None if failed.
-    """
-    if not PDF_LIB_AVAILABLE:
-        print(f"cannot extract text from pdf")
-        return None
+    Download PDF from URL and extract clean text using pymupdf4llm.
     
+    Args:
+        url: URL to the PDF file (must end with .pdf)
+    
+    Returns:
+        str: Clean text extracted from the PDF
+    """
     try:
-        # Download PDF
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        
-        # Check if response is actually a PDF
-        content_type = response.headers.get('Content-Type', '').lower()
-        if 'pdf' not in content_type and not url.lower().endswith('.pdf'):
-            return None
-        
-        # Read PDF content
-        pdf_file = io.BytesIO(response.content)
-        
-        # Try PyPDF2 first
-        try:
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            text_content = []
-            for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
-                text_content.append(page.extract_text())
-            return '\n'.join(text_content)
-        except:
-            # Fallback to pdfplumber if PyPDF2 fails
-            try:
-                try:
-                    import pdfplumber
-                except ImportError:
-                    print("cannot parse via 2 methods")
-                    return None
-                with pdfplumber.open(pdf_file) as pdf:
-                    text_content = []
-                    for page in pdf.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            text_content.append(page_text)
-                return '\n'.join(text_content)
-            except Exception as e:
-                print(f"Error extracting text from PDF with pdfplumber: {e}")
-                return None
-                
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            pdf_bytes = io.BytesIO(response.content)
+            # Open with pymupdf first using stream parameter
+            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+            md_text = pymupdf4llm.to_markdown(doc)
+            return md_text
     except requests.RequestException as e:
-        print(f"Error downloading PDF: {e}")
-        return None
-    except Exception as e:
-        print(f"Error processing PDF: {e}")
-        return None
+            print(f"Error downloading PDF: {e}")
+            return None
 
 def is_dynamically_loaded(raw_content, soup):
     """
@@ -164,6 +137,35 @@ def is_dynamically_loaded(raw_content, soup):
     
     return False
 
+def load_url(url, driver, max_retries=3):
+    # loads url with up to 3 retries, creates new driver for each retry
+    for attempt in range(max_retries):
+        try:
+            driver.set_page_load_timeout(10) 
+            driver.get(url)
+            return driver
+        except TimeoutException as e:
+            logger.error(f"Attempt {attempt + 1}/{max_retries} timeout for {url}, creating new driver...")
+            time.sleep(2)
+            if attempt < max_retries - 1:  # not last attempt
+                try:
+                    driver.quit()
+                    driver = webdriver.Firefox()
+                except Exception as driver_e:
+                    logger.error(f"Failed to create new driver: {driver_e}")
+                    return driver
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1}/{max_retries} failed to load URL: {url}", exc_info=True)
+            time.sleep(2)
+            if attempt < max_retries - 1:  # not last attempt
+                try:
+                    driver.quit()
+                    driver = webdriver.Firefox()
+                except Exception as driver_e:
+                    logger.error(f"Failed to create new driver: {driver_e}")
+                    return driver
+    return driver
+
 def fetch_with_selenium(source_url): #general selenium function for fetching text from page, not specific to congress.gov. More robust than beautifulsoup to attempt to assure accuracy.
     """
     Use Selenium to fetch page content after JavaScript has rendered.
@@ -172,14 +174,13 @@ def fetch_with_selenium(source_url): #general selenium function for fetching tex
     driver = None
     try:
         driver = webdriver.Firefox()
-        driver.get(source_url)
+        driver = load_url(source_url, driver)
         
-        
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait[Any | WebDriver](driver, 10)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         
         # wait for page load 
-        time.sleep(4)
+        time.sleep(2)
         
         # searching containers 
         bill_text = ""
@@ -240,15 +241,14 @@ def retreive_txt(allow_duplicates=False):
         
         id_val, raw_content, source_url = result 
         
-        # Check if URL is a PDF - handle separately
+        # Check if URL is a PDF - try PDF extraction first
         if is_pdf_url(source_url):
             print("scraping text via pdf")
             pdf_text = extract_text_from_pdf(source_url)
             if pdf_text and len(pdf_text.strip()) > 0:
                 return store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
             else:
-                print(f"Failed to extract text from PDF: {source_url}")
-                return None
+                print(f"PDF extraction failed for {source_url}, falling back to normal parsing...")
         
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
 

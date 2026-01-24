@@ -24,8 +24,13 @@ def store_html(url, allow_duplicates=False): #stores html
     connection = None
     cursor = None
     html_content = retrieve_html(url)
-    if html_content is None:
-        return None
+    # allows retries for retrireiving html
+    max_retries = 2
+    retry_count = 0
+    while html_content is None and retry_count < max_retries:
+        
+        html_content = retrieve_html(url)
+        retry_count += 1
     try:
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
