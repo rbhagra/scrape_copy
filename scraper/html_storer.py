@@ -20,7 +20,10 @@ def retrieve_html(url):
         return None
 
 
-def store_html(url, allow_duplicates=False): #stores html 
+def store_html(url, allow_duplicates=False):
+    """
+    Returns dict: {"html_id": int or None, "warning": str or None, "error": str or None}
+    """
     connection = None
     cursor = None
     html_content = retrieve_html(url)
@@ -28,22 +31,24 @@ def store_html(url, allow_duplicates=False): #stores html
     max_retries = 2
     retry_count = 0
     while html_content is None and retry_count < max_retries:
-        
         html_content = retrieve_html(url)
         retry_count += 1
+    
+    if html_content is None:
+        return {"html_id": None, "warning": None, "error": "Failed to retrieve HTML after retries"}
+    
     try:
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
         
-        # Check if URL already exists in database, only check to avoid duplicates. Can work in more sophisticated checks.
-        if not allow_duplicates: # runs check only if user decides to not allow duplicates. Duplicates likely allowed for versions of bills.
+        # Check if URL already exists in database
+        if not allow_duplicates:
             check_query = "SELECT id FROM leg_html WHERE source_url = %s"
             cursor.execute(check_query, (url,))
             existing = cursor.fetchone()
             
             if existing:
-                print(f"Bill already exists in database (ID: {existing[0]}). Skipping duplicate.")
-                return existing[0]
+                return {"html_id": existing[0], "warning": "Duplicate URL, using existing record", "error": None}
         
         insert_query = "INSERT INTO leg_html (source_url, raw_content) VALUES (%s, %s)"
         cursor.execute(insert_query, (url, html_content))
@@ -51,13 +56,20 @@ def store_html(url, allow_duplicates=False): #stores html
         html_id = cursor.lastrowid
         
         from txt_storer import retreive_txt
-        retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id)
+        txt_result = retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id)
         
-        return html_id
+        # Capture warning from text extraction
+        warning = None
+        if txt_result:
+            if txt_result.get("warning"):
+                warning = txt_result["warning"]
+            if not txt_result.get("success"):
+                warning = txt_result.get("warning") or "Text extraction failed"
+        
+        return {"html_id": html_id, "warning": warning, "error": None}
 
     except Error as e:
-        print(f"Error in database insertion: '{e}'")
-        return None
+        return {"html_id": None, "warning": None, "error": f"Database error: {e}"}
     finally:
         try:
             if cursor:

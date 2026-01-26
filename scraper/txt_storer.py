@@ -303,9 +303,11 @@ def retreive_txt(allow_duplicates=False, html_id=None):
                 else:
                     body = all_text[start_index : ] # if can't find these markers, take all that is returned
                 
-                return store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
+                processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
+                return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
 
-            return store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
+            processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
+            return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
         
         # For all other sites, first try BeautifulSoup, then check if content is dynamically loaded
         else:
@@ -331,7 +333,8 @@ def retreive_txt(allow_duplicates=False, html_id=None):
                 if selenium_text and len(selenium_text) > len(cleaned_text):
                     cleaned_text = selenium_text
                 else:
-                    print(f"Altenative method for dybamic loading did not improve results, using original text.")
+                    if not warning:
+                        warning = "Selenium fallback did not improve text extraction results"
             
             # Site-specific post-processing
             if "legislature.ca.gov" in source_url.lower():
@@ -340,13 +343,12 @@ def retreive_txt(allow_duplicates=False, html_id=None):
                 if bill_start_index != -1:
                     cleaned_text = cleaned_text[bill_start_index:]
         
-            
-            return store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
+            processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
+            return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
 
     
     except Error as e:
-        print(f"Error in database operations: {e}")
-        return None
+        return {"success": False, "processed_id": None, "warning": f"Database error: {e}"}
     finally:
         try: # handles unread results from query for duplicates, occurs when duplicate allowed once and multiple ids accesible for each URL
 

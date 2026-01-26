@@ -107,18 +107,17 @@ def process_url(url, allow_duplicates):
         allow_duplicates: Whether to allow duplicate processing
     
     Returns:
-        dict: Result dictionary with success status and details
+        dict: Result dictionary with success status, details, and warnings
     """
     try:
+        result = store_html(url, allow_duplicates=allow_duplicates)
         
-        
-        result_id = store_html(url, allow_duplicates=allow_duplicates)
-        
-        if result_id is not None:
+        if result.get("html_id") is not None:
             return {
                 "url": url,
                 "success": True,
-                "html_id": result_id,
+                "html_id": result["html_id"],
+                "warning": result.get("warning"),
                 "error": None
             }
         else:
@@ -126,7 +125,8 @@ def process_url(url, allow_duplicates):
                 "url": url,
                 "success": False,
                 "html_id": None,
-                "error": "Failed to store HTML (errors logged)"
+                "warning": result.get("warning"),
+                "error": result.get("error") or "Failed to store HTML"
             }
     
     except Exception as e:
@@ -134,6 +134,7 @@ def process_url(url, allow_duplicates):
             "url": url,
             "success": False,
             "html_id": None,
+            "warning": None,
             "error": str(e)
         }
 
@@ -156,8 +157,8 @@ def run_pipeline(config, results_dir):
     successful_URLs = 0
     failed_URLs = 0
     errors = []
+    warnings = []
     
-   
     print(f"# running pipeline, writing to results directory: {results_dir}")
     print(f"{'#'*70}\n")
     
@@ -168,6 +169,9 @@ def run_pipeline(config, results_dir):
         
         if result["success"]:
             successful_URLs += 1
+            # Capture warnings from successful runs
+            if result.get("warning"):
+                warnings.append(f"{url}: {result['warning']}")
         else:
             failed_URLs += 1
             error_msg = f"Failed to process {url}: {result['error']}"
@@ -183,6 +187,7 @@ def run_pipeline(config, results_dir):
         "failed_URLs": failed_URLs,
         "results": results,
         "errors": errors,
+        "warnings": warnings,
         "html_ids": html_ids
     }
     print(f"# pipeline execution complete")
@@ -221,7 +226,7 @@ def export_results_to_csv(results_dir, html_ids=None):
         return None
 
 
-def write_status_json(results_dir, pipeline_summary, export_summary):
+def write_status_json(results_dir, pipeline_summary, export_summary, export_error=None):
     """
     Write status.json with execution results.
     
@@ -229,15 +234,21 @@ def write_status_json(results_dir, pipeline_summary, export_summary):
         results_dir: Directory to save status.json
         pipeline_summary: summary from run_pipeline()
         export_summary: summary from export_results_to_csv()
+        export_error: error message if CSV export failed
     """
+    all_errors = pipeline_summary["errors"].copy()
+    if export_error:
+        all_errors.append(f"CSV export error: {export_error}")
+    
     status_data = {
         "timestamp": datetime.now().isoformat(),
-        "success": pipeline_summary["failed_URLs"] == 0,
+        "success": pipeline_summary["failed_URLs"] == 0 and export_error is None,
         "total_URLs": pipeline_summary["total_URLs"],
         "successful_URLs": pipeline_summary["successful_URLs"],
         "failed_URLs": pipeline_summary["failed_URLs"],
         "csv_files": [],
-        "pipeline errors": pipeline_summary["errors"]
+        "errors": all_errors,
+        "warnings": pipeline_summary.get("warnings", [])
     }
     
     # if export was successful adds csv file info
@@ -270,16 +281,27 @@ def main():
         # run the pipeline
         pipeline_summary = run_pipeline(config, results_dir)
         
-        # Export results to CSV, taking only bills fro that run
+        # Export results to CSV, taking only bills from that run
         html_ids = pipeline_summary.get("html_ids", [])
-        export_summary = export_results_to_csv(results_dir, html_ids=html_ids)
+        export_error = None
+        try:
+            export_summary = export_results_to_csv(results_dir, html_ids=html_ids)
+            if export_summary is None:
+                export_error = "Export returned no results"
+        except Exception as e:
+            export_summary = None
+            export_error = str(e)
         
         # Write status.json
-        write_status_json(results_dir, pipeline_summary, export_summary)
+        write_status_json(results_dir, pipeline_summary, export_summary, export_error=export_error)
+        
+        # Exit with appropriate code
+        if pipeline_summary["failed_URLs"] > 0 or export_error:
+            sys.exit(1)
+        sys.exit(0)
     except Exception as e:
         print(f"\n✗ FATAL ERROR: {e}")
         sys.exit(1)
-    sys.exit(0)
 
 if __name__ == "__main__":
     main()
