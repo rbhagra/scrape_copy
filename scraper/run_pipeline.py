@@ -6,6 +6,7 @@ Usage:
     python run_pipeline.py --config path_to_config.json, run pipeline
 """
 
+
 import argparse
 import json
 import os

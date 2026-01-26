@@ -20,6 +20,7 @@ import io
 import sys
 import os
 
+
 import pymupdf
 import pymupdf4llm
 from selenium.common.exceptions import TimeoutException
