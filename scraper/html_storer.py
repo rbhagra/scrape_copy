@@ -51,7 +51,7 @@ def store_html(url, allow_duplicates=False): #stores html
         html_id = cursor.lastrowid
         
         from txt_storer import retreive_txt
-        retreive_txt(allow_duplicates=allow_duplicates)
+        retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id)
         
         return html_id
 

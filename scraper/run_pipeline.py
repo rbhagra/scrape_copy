@@ -3,7 +3,7 @@
 Command-line interface for the legislative scraping pipeline.
 
 Usage:
-    python run_pipeline.py --config path_to_config.json
+    python run_pipeline.py --config path_to_config.json, run pipeline
 """
 
 import argparse

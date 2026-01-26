@@ -1,0 +1,14 @@
+{
+  "URLs": [
+    "https://www.congress.gov/bill/118th-congress/house-bill/1",
+    "https://leginfo.legislature.ca.gov/faces/billNavClient.xhtml?bill_id=202320240AB1",
+    "https://capitol.texas.gov/tlodocs/89R/billtext/pdf/HB00149I.pdf"
+  ],
+  "settings": {
+    "allow_duplicates": true,
+    "min_bill_text_length": 500
+  },
+  "output": {
+    "results_folder": "output/results"
+  }
+}

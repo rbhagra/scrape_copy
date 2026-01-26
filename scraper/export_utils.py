@@ -95,7 +95,7 @@ def export_all_tables(connection, results_dir, html_ids=None):
         connection, 
         "leg_html", 
         html_path,
-        columns=["id", "source_url", "created_at"],
+        columns=["id", "source_url", "raw_content", "created_at"],
         where_clause=html_where if html_ids else None,
         params=params if html_ids else None
     )
@@ -107,12 +107,12 @@ def export_all_tables(connection, results_dir, html_ids=None):
         connection,
         "leg_processed",
         processed_path,
-        columns=["id", "raw_doc_id", "processed_at"],
+        columns=["id", "raw_doc_id", "clean_text", "processed_at"],
         where_clause=processed_where if html_ids else None,
         params=params if html_ids else None
     )
     exports["processed_text"] = processed_count
-    
+    ''' not using defs for now. 
     # Export definitions - need to join to get only definitions from this run's processed docs
     definitions_path = f"{results_dir}/definitions.csv"
     if html_ids and len(html_ids) > 0:
@@ -149,5 +149,5 @@ def export_all_tables(connection, results_dir, html_ids=None):
             columns=["id", "processed_doc_id", "term", "definition_text"]
         )
     exports["definitions"] = definitions_count
-    
+    '''
     return exports

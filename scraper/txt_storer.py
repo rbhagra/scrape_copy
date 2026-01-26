@@ -14,8 +14,12 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 from bs4 import XMLParsedAsHTMLWarning
 import warnings
+warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
 import requests
 import io
+import sys
+import os
+
 import pymupdf
 import pymupdf4llm
 from selenium.common.exceptions import TimeoutException
@@ -68,16 +72,16 @@ def extract_text_from_pdf(url):
         str: Clean text extracted from the PDF
     """
     try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            pdf_bytes = io.BytesIO(response.content)
-            # Open with pymupdf first using stream parameter
-            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-            md_text = pymupdf4llm.to_markdown(doc)
-            return md_text
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        pdf_bytes = io.BytesIO(response.content)
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        md_text = pymupdf4llm.to_markdown(doc)
+        return md_text
     except requests.RequestException as e:
-            print(f"Error downloading PDF: {e}")
-            return None
+        return None
+    except Exception as e:
+        return None
 
 def is_dynamically_loaded(raw_content, soup):
     """
@@ -220,35 +224,50 @@ def fetch_with_selenium(source_url): #general selenium function for fetching tex
         if driver:
             driver.quit()
 
-def retreive_txt(allow_duplicates=False):
+def retreive_txt(allow_duplicates=False, html_id=None):
+    """
+    Returns dict with: {"success": bool, "processed_id": int or None, "warning": str or None}
+    """
     connection = None
+    warning = None
     try:
         from dbconnection import create_connection
         connection = create_connection(host,user , pw, database)
         cursor = connection.cursor()
-        query = """
-        SELECT h.id, h.raw_content, h.source_url 
-        FROM leg_html h
-        LEFT JOIN leg_processed p ON h.id = p.raw_doc_id
-        WHERE p.raw_doc_id IS NULL LIMIT 1
-        """
-        cursor.execute(query)
+        
+        # If specific html_id provided, process that record
+        if html_id:
+            query = """
+            SELECT h.id, h.raw_content, h.source_url 
+            FROM leg_html h
+            WHERE h.id = %s
+            """
+            cursor.execute(query, (html_id,))
+        else:
+            # Fallback: find any unprocessed HTML
+            query = """
+            SELECT h.id, h.raw_content, h.source_url 
+            FROM leg_html h
+            LEFT JOIN leg_processed p ON h.id = p.raw_doc_id
+            WHERE p.raw_doc_id IS NULL LIMIT 1
+            """
+            cursor.execute(query)
+        
         result = cursor.fetchone()
 
         if not result:
-            print("No more HTML to process")
-            return None
+            return {"success": False, "processed_id": None, "warning": "No HTML to process"}
         
         id_val, raw_content, source_url = result 
         
         # Check if URL is a PDF - try PDF extraction first
         if is_pdf_url(source_url):
-            print("scraping text via pdf")
             pdf_text = extract_text_from_pdf(source_url)
             if pdf_text and len(pdf_text.strip()) > 0:
-                return store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+                processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+                return {"success": processed_id is not None, "processed_id": processed_id, "warning": None}
             else:
-                print(f"PDF extraction failed for {source_url}, falling back to normal parsing...")
+                warning = f"PDF extraction failed for {source_url}, fell back to normal parsing"
         
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
 
@@ -263,17 +282,27 @@ def retreive_txt(allow_duplicates=False):
                 txt_link = wait.until(EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "TXT")))
                 txt_link.click()
                 time.sleep(2)
+                
             except:
                 pass 
 
             all_text = driver.find_element(By.TAG_NAME, "body").text
-            driver.quit()
             start = "<DOC>"
-            end ="<all>"
-            if start in all_text and end in all_text:
+            end_1= "<All>"
+            end_2 = "<Attest:>" # 2 options for finding end of TXT, as this is not uniformly marked
+
+        
+            if start in all_text:
                 start_index = all_text.find(start)
-                end_index = all_text.find(end)
-                body = all_text[start_index : end_index]
+                
+                if end_1 or end_2 in all_text:
+                    end_index = all_text.find(end_1)
+                    if end_index == -1:
+                        end_index = all_text.find(end_2)
+                    body = all_text[start_index : end_index]
+                else:
+                    body = all_text[start_index : ] # if can't find these markers, take all that is returned
+                
                 return store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
 
             return store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
@@ -348,8 +377,6 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
         cursor.execute(insert_query, (raw_id,clean_text))
         connection.commit()
         processed_doc_id = cursor.lastrowid
-        
-        print("Bill text stored.")
         
         # Pipeline: After storing text, trigger definition extraction skip for now while def section in development
 
