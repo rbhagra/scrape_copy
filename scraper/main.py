@@ -8,13 +8,12 @@ from dotenv import load_dotenv
 import os
 import time
 
-
 load_dotenv()
 pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-
+#### USED FOR LOCALIZED TESTING. DO NOT RUN FOR PIPELINE EXECUTION.
 def process_new_url(url, allow_duplicates=False):
     """
     Process a new URL through the pipeline.

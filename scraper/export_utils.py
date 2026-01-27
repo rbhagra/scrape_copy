@@ -5,8 +5,6 @@ import csv
 from mysql.connector import Error
 import time
 
-
-
 def export_table_to_csv(connection, table_name, output_path, columns=None, where_clause=None, params=None):
     """
     Export a database table to a CSV file

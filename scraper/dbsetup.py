@@ -3,7 +3,6 @@ from mysql.connector import Error
 from dbconnection import create_connection
 import os
 from dotenv import load_dotenv
-
 load_dotenv()
 pw = os.getenv("password")
 host = os.getenv("host_name")

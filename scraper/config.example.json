@@ -3,14 +3,14 @@
     "https://www.congress.gov/bill/118th-congress/house-bill/1",
     "https://leginfo.legislature.ca.gov/faces/billNavClient.xhtml?bill_id=202320240AB1",
     "https://capitol.texas.gov/tlodocs/89R/billtext/pdf/HB00149I.pdf",
-    "https://www.congress.gov/119/bills/s232/BILLS-119s232is.xml"
+    "https://www.congress.gov/119/bills/s232/BILLS-119s232is.xml",
+    "https://www.cga.ct.gov/2025/TOB/H/PDF/2025HB-06060-R00-HB.PDF",
+    "https://legiscan.com/CA/text/SB53/id/3270002"
+
   ],
   "settings": {
     "allow_duplicates": true,
     "min_bill_text_length": 500
-  },
-  "output": {
-    "results_folder": "output/results"
   }
 }
 

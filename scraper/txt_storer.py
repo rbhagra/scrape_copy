@@ -19,8 +19,6 @@ import requests
 import io
 import sys
 import os
-
-
 import pymupdf
 import pymupdf4llm
 from selenium.common.exceptions import TimeoutException
@@ -62,6 +60,29 @@ def is_pdf_url(url):
         return True
     return False
 
+def remove_empty_lines(text):
+    """
+    Remove empty lines, lines with only whitespace, and lines with only numbers from text.
+    
+    Args:
+        text: Input text with potential empty lines
+    
+    Returns:
+        str: Text with empty/number-only lines removed
+    """
+    if not text:
+        return text
+    lines = text.split('\n')
+    # keeping lines that have content 
+    cleaned_lines = []
+    for line in lines:
+        stripped = line.strip()
+        # skipping empty lines that are only numbers
+        if stripped and not stripped.replace(' ', '').isdigit():
+            cleaned_lines.append(line)
+    return '\n'.join(cleaned_lines)
+
+
 def extract_text_from_pdf(url):
     """
     Download PDF from URL and extract clean text using pymupdf4llm.
@@ -78,7 +99,9 @@ def extract_text_from_pdf(url):
         pdf_bytes = io.BytesIO(response.content)
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         md_text = pymupdf4llm.to_markdown(doc)
-        return md_text
+        # Remove empty lines from extracted text
+        cleaned_text = remove_empty_lines(md_text)
+        return cleaned_text
     except requests.RequestException as e:
         return None
     except Exception as e:
@@ -304,9 +327,13 @@ def retreive_txt(allow_duplicates=False, html_id=None):
                 else:
                     body = all_text[start_index : ] # if can't find these markers, take all that is returned
                 
+                # Remove empty lines from congress.gov text
+                body = remove_empty_lines(body)
                 processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
                 return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
 
+            # Remove empty lines from congress.gov text
+            all_text = remove_empty_lines(all_text)
             processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
             return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
         

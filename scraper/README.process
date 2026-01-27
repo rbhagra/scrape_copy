@@ -1,0 +1,30 @@
+Process for running pipeline
+
+- 1. Create and populate the MySQL database
+  - Ensure MySQL is running and reachable.
+  - Create the target database 
+  - configure environment with data base name, user name, host name, and password
+  - Run db setup in order to set up all required tables (html, text, defs) with required columns
+
+- 2 Prepare config files
+  - Review `config.example.json` or `test_config.json` as examples
+  - Required top-level keys:
+    - `URLs`: list of bill URLs to scrape.
+    - `settings`: object with value for allow_duplicates
+  - Save your config file anywhere accessible in project root
+
+-3 ensure all libraries and dependencies are installed 
+
+- 4 Run the pipeline**
+  - From the project root run:
+    - `python run_pipeline.py --config path/to/your_config.json
+  - script does the following:
+    - validates the config
+    - creates a timestamped results directory under `results/bills/<YYYYMMDD_HHMMSS>/`
+    - scrapes and store bill HTML into MySQL
+    - export relevant tables to CSV for the current run
+    - Write a `status.json` to summarize sucess, issues, and warnings, as well as info about csvs
+
+-5 IMPORTANT NOTE: 
+- ppipeline does not currently extract and export definitions. That code is in development and is simply commented out.
+Can uncomment if there is desire to test.

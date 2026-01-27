@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import re
 
-
 load_dotenv()
 pw = os.getenv("password")
 host = os.getenv("host_name")

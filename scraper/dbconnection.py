@@ -1,7 +1,7 @@
 import mysql.connector
 from mysql.connector import Error
 
-### IGNORE. USED FOR CONNECTION SETUP
+# connection setup
 def create_connection(host_name, user_name, password, database_name):
     try:
         connection = mysql.connector.connect(
