@@ -8,7 +8,7 @@ Adjustments:
  - installed general check for dynamically-loaded content, e.g Utah, which doesn't load most mill text in intial html without
  it actually appearing as such
     - filters for tells in javascript and for json, as well as compares agaisnt length benchmarks of html verus text
- - uses selenium to load source fully and sorts through common container ids to give best chance of pulling full text 
+ - uses selenium to load source fully and sorts through common container ids to give best chance ofppytho pulling full text
 - added in error handling for cursor / connection closing, especially when multiple versions of a bill are returned in duplicate check and multiple ids 
 are present, which originally prevented cursor from closing.
 

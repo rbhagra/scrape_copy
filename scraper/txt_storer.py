@@ -22,6 +22,10 @@ import os
 import pymupdf
 import pymupdf4llm
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+import random
+from urllib.parse import urljoin
 import logging
 logger = logging.getLogger(__name__)
 try:
@@ -106,6 +110,66 @@ def extract_text_from_pdf(url):
         return None
     except Exception as e:
         return None
+
+def _looks_like_document_url(url):
+    """Check if a URL looks like it points to a document (PDF, DOCX, etc.)."""
+    url_lower = url.lower()
+    doc_extensions = ['.pdf', '.doc', '.docx', '.txt', '.rtf']
+    for ext in doc_extensions:
+        if ext in url_lower:
+            return True
+    doc_indicators = ['format=pdf', 'type=pdf', '/pdf/', '/document/', '/viewer/']
+    for indicator in doc_indicators:
+        if indicator in url_lower:
+            return True
+    return False
+
+
+def get_embedded_document_url(soup, source_url):
+    """
+    Scan parsed HTML for embedded document viewers (iframe, embed, object).
+    If a tag points to a document URL (PDF, etc.) or looks like a large content
+    viewer, resolve and return the absolute URL.  Returns None otherwise.
+    """
+    # Pass 1: tags whose src/data clearly points to a document file
+    for tag in soup.find_all("iframe"):
+        src = tag.get("src", "")
+        if src and _looks_like_document_url(src):
+            return urljoin(source_url, src)
+
+    for tag in soup.find_all("embed"):
+        src = tag.get("src", "")
+        if src and _looks_like_document_url(src):
+            return urljoin(source_url, src)
+
+    for tag in soup.find_all("object"):
+        data = tag.get("data", "")
+        if data and _looks_like_document_url(data):
+            return urljoin(source_url, data)
+
+    # Pass 2: iframes that look like content viewers (keyword or large size)
+    for tag in soup.find_all("iframe"):
+        src = tag.get("src", "")
+        if not src:
+            continue
+        src_lower = src.lower()
+        # Viewer-like URL keywords
+        if any(kw in src_lower for kw in ["viewer", "document", "bill", "legislation", "text"]):
+            return urljoin(source_url, src)
+        # Large iframes are likely content viewers
+        width = tag.get("width", "")
+        height = tag.get("height", "")
+        if width and height:
+            try:
+                w = int(str(width).replace("px", "").replace("%", ""))
+                h = int(str(height).replace("px", "").replace("%", ""))
+                if w >= 400 and h >= 400:
+                    return urljoin(source_url, src)
+            except ValueError:
+                pass
+
+    return None
+
 
 def is_dynamically_loaded(raw_content, soup):
     """
@@ -194,14 +258,32 @@ def load_url(url, driver, max_retries=3):
                     return driver
     return driver
 
-def fetch_with_selenium(source_url): #general selenium function for fetching text from page, not specific to congress.gov. More robust than beautifulsoup to attempt to assure accuracy.
+def check_text_for_block(text):
+    """Check if extracted text indicates the page was blocked. Returns error string or None."""
+    if not text:
+        return None
+    text_lower = text.lower()
+    if "you have been blocked" in text_lower or "attention required" in text_lower:
+        return "BLOCKED: Access denied by website security"
+    if "cloudflare" in text_lower and "ray id" in text_lower:
+        return "BLOCKED: Cloudflare protection"
+    if "access denied" in text_lower and len(text) < 2000:
+        return "BLOCKED: Access denied"
+    return None
+
+def fetch_with_selenium(source_url, driver=None): #general selenium function for fetching text from page, not specific to congress.gov. More robust than beautifulsoup to attempt to assure accuracy.
     """
     Use Selenium to fetch page content after JavaScript has rendered.
     Returns the page text or None if failed.
+    
+    Args:
+        source_url: URL to fetch
+        driver: Optional existing WebDriver instance to reuse
     """
-    driver = None
+    owns_driver = driver is None
     try:
-        driver = webdriver.Firefox()
+        if owns_driver:
+            driver = webdriver.Firefox()
         driver = load_url(source_url, driver)
         
         wait = WebDriverWait[Any | WebDriver](driver, 10)
@@ -238,22 +320,52 @@ def fetch_with_selenium(source_url): #general selenium function for fetching tex
         # full body text if not found in container
         if len(bill_text) < MIN_BILL_TEXT_LENGTH:
             bill_text = driver.find_element(By.TAG_NAME, "body").text
-        
+
+        # Iframe fallback: if main page still has little content, look inside iframes
+        if len(bill_text) < MIN_BILL_TEXT_LENGTH:
+            iframes = driver.find_elements(By.TAG_NAME, "iframe")
+            for iframe in iframes:
+                try:
+                    if not iframe.is_displayed():
+                        continue
+                    iframe_src = iframe.get_attribute("src") or ""
+                    # If the iframe src is itself a PDF, skip (handled elsewhere)
+                    if is_pdf_url(iframe_src):
+                        continue
+                    driver.switch_to.frame(iframe)
+                    iframe_text = driver.find_element(By.TAG_NAME, "body").text.strip()
+                    driver.switch_to.default_content()
+                    if len(iframe_text) > len(bill_text):
+                        bill_text = iframe_text
+                except Exception:
+                    try:
+                        driver.switch_to.default_content()
+                    except Exception:
+                        pass
+                    continue
+
         return bill_text
         
     except Exception as e:
         print(f"Selenium error: {e}")
         return None
     finally:
-        if driver:
+        # Only quit driver if we created it
+        if owns_driver and driver:
             driver.quit()
 
-def retreive_txt(allow_duplicates=False, html_id=None):
+def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
     """
     Returns dict with: {"success": bool, "processed_id": int or None, "warning": str or None}
+    
+    Args:
+        allow_duplicates: Whether to allow duplicate processing
+        html_id: Specific HTML record ID to process
+        driver: Optional existing WebDriver instance to reuse (avoids opening new browser windows)
     """
     connection = None
     warning = None
+    owns_driver = False  # Track if we created the driver
     try:
         from dbconnection import create_connection
         connection = create_connection(host,user , pw, database)
@@ -295,8 +407,40 @@ def retreive_txt(allow_duplicates=False, html_id=None):
         
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
 
+        # Check for embedded document viewers (iframe/embed/object pointing to a document URL)
+        embedded_url = get_embedded_document_url(soup, source_url)
+        if embedded_url:
+            if is_pdf_url(embedded_url):
+                pdf_text = extract_text_from_pdf(embedded_url)
+                if pdf_text and len(pdf_text.strip()) > 0:
+                    processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+                    return {"success": processed_id is not None, "processed_id": processed_id,
+                            "warning": f"Extracted text from embedded PDF: {embedded_url}"}
+                else:
+                    warning = f"Embedded PDF extraction failed for {embedded_url}, falling back to normal parsing"
+            else:
+                # Non-PDF embedded doc — fetch it with requests and parse otherwise leave for selenium
+                try:
+                    embed_resp = requests.get(embedded_url, timeout=30)
+                    embed_resp.raise_for_status()
+                    embed_soup = BeautifulSoup(embed_resp.text, "lxml")
+                    for junk in embed_soup.find_all(["script", "style", "header", "footer", "nav"]):
+                        junk.decompose()
+                    embed_text = embed_soup.get_text(separator=" ", strip=True)
+                    if len(embed_text) >= MIN_BILL_TEXT_LENGTH:
+                        processed_id = store_txt(connection, id_val, embed_text, source_url, allow_duplicates=allow_duplicates)
+                        return {"success": processed_id is not None, "processed_id": processed_id,
+                                "warning": f"Extracted text from embedded document: {embedded_url}"}
+                    else:
+                        warning = f"Embedded doc at {embedded_url} had little text, falling back to normal parsing"
+                except Exception:
+                    warning = f"Could not fetch embedded doc at {embedded_url}, falling back to normal parsing"
+
         if "congress.gov" in source_url.lower(): #checks for congress.gov to utilize TXT feature via selenium. Else deafults to processing HTML via BS
-            driver = webdriver.Firefox() #change if using chrome etc
+            # Use provided driver or create new one
+            if driver is None:
+                driver = webdriver.Firefox()
+                owns_driver = True
             try: 
                 driver.get(source_url)
                 wait = WebDriverWait(driver, 2)
@@ -356,7 +500,12 @@ def retreive_txt(allow_duplicates=False, html_id=None):
             
             # pass to general selenium extractor. 
             if needs_selenium:
-                selenium_text = fetch_with_selenium(source_url)
+                selenium_text = fetch_with_selenium(source_url, driver=driver)
+                
+                # Check if page was blocked
+                block_error = check_text_for_block(selenium_text)
+                if block_error:
+                    return {"success": False, "processed_id": None, "warning": None, "error": block_error}
                 
                 if selenium_text and len(selenium_text) > len(cleaned_text):
                     cleaned_text = selenium_text
@@ -379,7 +528,9 @@ def retreive_txt(allow_duplicates=False, html_id=None):
         return {"success": False, "processed_id": None, "warning": f"Database error: {e}"}
     finally:
         try: # handles unread results from query for duplicates, occurs when duplicate allowed once and multiple ids accesible for each URL
-
+            # Only quit driver if we created it ourselves
+            if owns_driver and driver:
+                driver.quit()
             if cursor:
                 # Consume any unread results before closing
                 cursor.fetchall() if cursor.with_rows else None

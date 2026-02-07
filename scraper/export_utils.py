@@ -1,9 +1,49 @@
 """
-Utility functions for exporting database tables to CSV files.
+Utility functions for exporting database tables to CSV files and computing pipeline metrics.
 """
 import csv
+from collections import defaultdict
+from urllib.parse import urlparse
 from mysql.connector import Error
 import time
+
+
+def compute_domain_metrics(results):
+    """
+    Compute per-domain success/failure counts from pipeline results.
+
+    Args:
+        results: List of per-URL result dicts from run_pipeline
+
+    Returns:
+        dict: Keyed by domain, each value has total, success, failed,
+              blocked, success_rate, and list of errors
+    """
+    stats = defaultdict(lambda: {
+        "total": 0, "success": 0, "failed": 0,
+        "blocked": 0, "success_rate": 0.0, "errors": []
+    })
+
+    for r in results:
+        domain = urlparse(r["url"]).netloc
+        stats[domain]["total"] += 1
+        if r["success"]:
+            stats[domain]["success"] += 1
+        else:
+            stats[domain]["failed"] += 1
+            error = r.get("error") or ""
+            if "cloudflare" in error.lower() or "blocked" in error.lower():
+                stats[domain]["blocked"] += 1
+            stats[domain]["errors"].append(error)
+
+    # compute success rates
+    for domain in stats:
+        total = stats[domain]["total"]
+        stats[domain]["success_rate"] = round(
+            stats[domain]["success"] / total * 100, 1
+        ) if total > 0 else 0.0
+
+    return dict(stats)
 
 def export_table_to_csv(connection, table_name, output_path, columns=None, where_clause=None, params=None):
     """

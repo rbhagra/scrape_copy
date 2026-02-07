@@ -9,13 +9,15 @@ import argparse
 import json
 import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
 from dbconnection import create_connection
 from html_storer import store_html
-from export_utils import export_all_tables
+from export_utils import export_all_tables, compute_domain_metrics
+from selenium import webdriver
 
 # Load environment variables
 load_dotenv()
@@ -97,21 +99,31 @@ def load_config(config_path):
     return config
 
 
-def process_url(url, allow_duplicates):
+def process_url(url, allow_duplicates, driver=None):
     """
     Process a single URL through the pipeline.
     
     Args:
         url: URL to process
         allow_duplicates: Whether to allow duplicate processing
+        driver: Optional existing WebDriver instance to reuse
     
     Returns:
         dict: Result dictionary with success status, details, and warnings
     """
     try:
-        result = store_html(url, allow_duplicates=allow_duplicates)
+        result = store_html(url, allow_duplicates=allow_duplicates, driver=driver)
         
-        if result.get("html_id") is not None:
+        # Check for errors first (e.g. Cloudflare block, embedded-doc failure)
+        if result.get("error"):
+            return {
+                "url": url,
+                "success": False,
+                "html_id": result.get("html_id"),
+                "warning": result.get("warning"),
+                "error": result["error"]
+            }
+        elif result.get("html_id") is not None:
             return {
                 "url": url,
                 "success": True,
@@ -161,23 +173,69 @@ def run_pipeline(config, results_dir):
     print(f"# running pipeline, writing to results directory: {results_dir}")
     print(f"{'#'*70}\n")
     
-    for idx, url in enumerate(URLs, 1):
+    # Max seconds to spend on a single URL before skipping it
+    PER_URL_TIMEOUT = 20
+
+    # Create a single shared browser instance for all URLs
+    driver = None
+    try:
         
-        result = process_url(url, allow_duplicates)
-        results.append(result)
+        driver = webdriver.Firefox()
         
-        if result["success"]:
-            successful_URLs += 1
-            # Capture warnings from successful runs
-            if result.get("warning"):
-                warnings.append(f"{url}: {result['warning']}")
-        else:
-            failed_URLs += 1
-            error_msg = f"Failed to process {url}: {result['error']}"
-            errors.append(error_msg)
+        for idx, url in enumerate(URLs, 1):
+            
+
+            # Run process_url in a daemon thread with a timeout so one
+            # stuck URL can never block the rest of the pipeline.
+            result_holder = [None]
+
+            def _run(u=url, dup=allow_duplicates, d=driver):
+                result_holder[0] = process_url(u, dup, driver=d)
+
+            thread = threading.Thread(target=_run, daemon=True)
+            thread.start()
+            thread.join(timeout=PER_URL_TIMEOUT)
+
+            if thread.is_alive():
+                # Thread is still running — URL timed out
+                result = {
+                    "url": url,
+                    "success": False,
+                    "html_id": None,
+                    "warning": None,
+                    "error": f"Timed out after {PER_URL_TIMEOUT}s"
+                }
+               
+                # kill stuck browser 
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                driver = webdriver.Firefox()
+            else:
+                result = result_holder[0]
+
+            results.append(result)
+            
+            if result["success"]:
+                successful_URLs += 1
+                # Capture warnings from successful runs
+                if result.get("warning"):
+                    warnings.append(f"{url}: {result['warning']}")
+            else:
+                failed_URLs += 1
+                error_msg = f"Failed to process {url}: {result['error']}"
+                errors.append(error_msg)
+    finally:
+        # Close the shared browser when done with all URLs
+        if driver:
+            driver.quit()
     
     # collect html_ids from successful runs for csv export filtering
     html_ids = [r["html_id"] for r in results if r["success"] and r["html_id"] is not None]
+
+    # compute per-domain success metrics
+    domain_metrics = compute_domain_metrics(results)
     
     # summary of pipleine execution
     summary = {
@@ -187,11 +245,11 @@ def run_pipeline(config, results_dir):
         "results": results,
         "errors": errors,
         "warnings": warnings,
-        "html_ids": html_ids
+        "html_ids": html_ids,
+        "domain_metrics": domain_metrics
     }
     print(f"# pipeline execution complete")
     print(f"#Total: {len(URLs)} | Success: {successful_URLs} | Failed: {failed_URLs}")
-    
     return summary
 
 
@@ -245,6 +303,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "total_URLs": pipeline_summary["total_URLs"],
         "successful_URLs": pipeline_summary["successful_URLs"],
         "failed_URLs": pipeline_summary["failed_URLs"],
+        "domain_metrics": pipeline_summary.get("domain_metrics", {}),
         "csv_files": [],
         "errors": all_errors,
         "warnings": pipeline_summary.get("warnings", [])
