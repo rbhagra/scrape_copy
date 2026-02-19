@@ -1,4 +1,3 @@
-from dbsetup import table_create
 from html_storer import store_html
 from txt_storer import retreive_txt
 from def_storer import store_defs

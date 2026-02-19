@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -17,6 +18,7 @@ from dotenv import load_dotenv
 from dbconnection import create_connection
 from html_storer import store_html
 from export_utils import export_all_tables, compute_domain_metrics
+from error_codes import ErrorCode
 from selenium import webdriver
 
 # Load environment variables
@@ -121,7 +123,10 @@ def process_url(url, allow_duplicates, driver=None):
                 "success": False,
                 "html_id": result.get("html_id"),
                 "warning": result.get("warning"),
-                "error": result["error"]
+                "error": result["error"],
+                "error_code": result.get("error_code", ErrorCode.UNKNOWN_ERROR.value),
+                "stage": result.get("stage", "html_fetch"),
+                "extraction_method": result.get("extraction_method")
             }
         elif result.get("html_id") is not None:
             return {
@@ -129,7 +134,10 @@ def process_url(url, allow_duplicates, driver=None):
                 "success": True,
                 "html_id": result["html_id"],
                 "warning": result.get("warning"),
-                "error": None
+                "error": None,
+                "error_code": None,
+                "stage": "complete",
+                "extraction_method": result.get("extraction_method")
             }
         else:
             return {
@@ -137,7 +145,10 @@ def process_url(url, allow_duplicates, driver=None):
                 "success": False,
                 "html_id": None,
                 "warning": result.get("warning"),
-                "error": result.get("error") or "Failed to store HTML"
+                "error": result.get("error") or "Failed to store HTML",
+                "error_code": result.get("error_code", ErrorCode.UNKNOWN_ERROR.value),
+                "stage": result.get("stage", "html_fetch"),
+                "extraction_method": result.get("extraction_method")
             }
     
     except Exception as e:
@@ -146,7 +157,10 @@ def process_url(url, allow_duplicates, driver=None):
             "success": False,
             "html_id": None,
             "warning": None,
-            "error": str(e)
+            "error": str(e),
+            "error_code": ErrorCode.UNKNOWN_ERROR.value,
+            "stage": "html_fetch",
+            "extraction_method": None
         }
 
 
@@ -169,12 +183,16 @@ def run_pipeline(config, results_dir):
     failed_URLs = 0
     errors = []
     warnings = []
+    url_timings = []  # Track per-URL processing times
     
     print(f"# running pipeline, writing to results directory: {results_dir}")
     print(f"{'#'*70}\n")
     
     # Max seconds to spend on a single URL before skipping it
     PER_URL_TIMEOUT = 20
+    
+    # Track pipeline start time
+    pipeline_start_time = time.time()
 
     # Create a single shared browser instance for all URLs
     driver = None
@@ -183,7 +201,8 @@ def run_pipeline(config, results_dir):
         driver = webdriver.Firefox()
         
         for idx, url in enumerate(URLs, 1):
-            
+            # Track per-URL timing
+            url_start_time = time.time()
 
             # Run process_url in a daemon thread with a timeout so one
             # stuck URL can never block the rest of the pipeline.
@@ -203,7 +222,10 @@ def run_pipeline(config, results_dir):
                     "success": False,
                     "html_id": None,
                     "warning": None,
-                    "error": f"Timed out after {PER_URL_TIMEOUT}s"
+                    "error": f"Timed out after {PER_URL_TIMEOUT}s",
+                    "error_code": ErrorCode.PIPELINE_TIMEOUT.value,
+                    "stage": "timeout",
+                    "extraction_method": None
                 }
                
                 # kill stuck browser 
@@ -214,6 +236,11 @@ def run_pipeline(config, results_dir):
                 driver = webdriver.Firefox()
             else:
                 result = result_holder[0]
+
+            # Calculate and store URL processing time
+            url_duration = time.time() - url_start_time
+            result["duration_seconds"] = round(url_duration, 2)
+            url_timings.append(url_duration)
 
             results.append(result)
             
@@ -231,11 +258,22 @@ def run_pipeline(config, results_dir):
         if driver:
             driver.quit()
     
+    # Calculate total pipeline duration
+    pipeline_duration = time.time() - pipeline_start_time
+    
     # collect html_ids from successful runs for csv export filtering
     html_ids = [r["html_id"] for r in results if r["success"] and r["html_id"] is not None]
 
     # compute per-domain success metrics
     domain_metrics = compute_domain_metrics(results)
+    
+    # Compute timing statistics
+    timing_stats = {
+        "total_duration_seconds": round(pipeline_duration, 2),
+        "avg_per_url_seconds": round(sum(url_timings) / len(url_timings), 2) if url_timings else 0,
+        "min_url_seconds": round(min(url_timings), 2) if url_timings else 0,
+        "max_url_seconds": round(max(url_timings), 2) if url_timings else 0
+    }
     
     # summary of pipleine execution
     summary = {
@@ -246,10 +284,40 @@ def run_pipeline(config, results_dir):
         "errors": errors,
         "warnings": warnings,
         "html_ids": html_ids,
-        "domain_metrics": domain_metrics
+        "domain_metrics": domain_metrics,
+        "timing": timing_stats
     }
-    print(f"# pipeline execution complete")
-    print(f"#Total: {len(URLs)} | Success: {successful_URLs} | Failed: {failed_URLs}")
+    # Per-stage counts
+    total = len(URLs)
+    success_pct = round(successful_URLs / total * 100, 1) if total > 0 else 0.0
+
+    html_fetch_fails = [r for r in results if not r["success"] and r.get("stage") == "html_fetch"]
+    text_extract_fails = [r for r in results if not r["success"] and r.get("stage") == "text_extraction"]
+    timeout_fails = [r for r in results if not r["success"] and r.get("stage") == "timeout"]
+
+    print(f"\n{'='*70}")
+    print(f"  PIPELINE EXECUTION SUMMARY")
+    print(f"{'='*70}")
+    print(f"  Total processed:  {total}")
+    print(f"  Succeeded:        {successful_URLs}  ({success_pct}%)")
+    print(f"  Failed:           {failed_URLs}")
+    print(f"{'='*70}")
+    print(f"  Stage 1 - HTML Fetch:       {total - len(html_fetch_fails) - len(timeout_fails)}/{total} succeeded")
+    if html_fetch_fails:
+        print(f"    {len(html_fetch_fails)} failed:")
+        for r in html_fetch_fails:
+            print(f"      - {r['url']}: {r['error']}")
+    print(f"  Stage 2 - Text Extraction:  {total - len(html_fetch_fails) - len(timeout_fails) - len(text_extract_fails)}/{total - len(html_fetch_fails) - len(timeout_fails)} succeeded")
+    if text_extract_fails:
+        print(f"    {len(text_extract_fails)} failed:")
+        for r in text_extract_fails:
+            print(f"      - {r['url']}: {r['error']}")
+    if timeout_fails:
+        print(f"  Timed out:        {len(timeout_fails)}")
+        for r in timeout_fails:
+            print(f"      - {r['url']}: {r['error']}")
+    print(f"{'='*70}\n")
+
     return summary
 
 
@@ -297,12 +365,61 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
     if export_error:
         all_errors.append(f"CSV export error: {export_error}")
     
+    # Compute error code distribution (only for actual errors, not successes)
+    error_code_counts = {}
+    for r in pipeline_summary.get("results", []):
+        code = r.get("error_code")
+        if code is not None:  # Only count actual errors
+            error_code_counts[code] = error_code_counts.get(code, 0) + 1
+    
+    # Compute extraction method distribution (only for successful extractions)
+    extraction_method_counts = {}
+    for r in pipeline_summary.get("results", []):
+        method = r.get("extraction_method")
+        if method is not None:
+            extraction_method_counts[method] = extraction_method_counts.get(method, 0) + 1
+    
+    # Compute stage-by-stage breakdown
+    results = pipeline_summary.get("results", [])
+    total_urls = len(results)
+    
+    # Count failures at each stage
+    html_fetch_failures = len([r for r in results if not r["success"] and r.get("stage") == "html_fetch"])
+    text_extraction_failures = len([r for r in results if not r["success"] and r.get("stage") == "text_extraction"])
+    timeout_failures = len([r for r in results if not r["success"] and r.get("stage") == "timeout"])
+    
+    # Calculate stage breakdown
+    html_fetch_attempted = total_urls
+    html_fetch_succeeded = total_urls - html_fetch_failures - timeout_failures
+    
+    text_extraction_attempted = html_fetch_succeeded  # Only URLs that passed html_fetch
+    text_extraction_succeeded = text_extraction_attempted - text_extraction_failures
+    
+    stage_breakdown = {
+        "html_fetch": {
+            "attempted": html_fetch_attempted,
+            "succeeded": html_fetch_succeeded,
+            "failed": html_fetch_failures
+        },
+        "text_extraction": {
+            "attempted": text_extraction_attempted,
+            "succeeded": text_extraction_succeeded,
+            "failed": text_extraction_failures
+        },
+        "timeout": timeout_failures,
+        "complete": pipeline_summary["successful_URLs"]
+    }
+    
     status_data = {
         "timestamp": datetime.now().isoformat(),
         "success": pipeline_summary["failed_URLs"] == 0 and export_error is None,
         "total_URLs": pipeline_summary["total_URLs"],
         "successful_URLs": pipeline_summary["successful_URLs"],
         "failed_URLs": pipeline_summary["failed_URLs"],
+        "timing": pipeline_summary.get("timing", {}),
+        "extraction_method_distribution": extraction_method_counts,
+        "stage_breakdown": stage_breakdown,
+        "error_code_distribution": error_code_counts,
         "domain_metrics": pipeline_summary.get("domain_metrics", {}),
         "csv_files": [],
         "errors": all_errors,

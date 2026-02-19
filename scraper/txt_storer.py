@@ -1,44 +1,22 @@
-from pydoc import text
-from selenium.webdriver.firefox.webdriver import WebDriver
-from socket import create_connection
-from typing import Any
-import mysql.connector
 from mysql.connector import Error
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
+from error_codes import ErrorCode
 import os
+import io
+import time
+import warnings
+import requests
+import pymupdf
+import pymupdf4llm
+from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import time
-from bs4 import XMLParsedAsHTMLWarning
-import warnings
-warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
-import requests
-import io
-import sys
-import os
-import pymupdf
-import pymupdf4llm
 from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-import random
-from urllib.parse import urljoin
-import logging
-logger = logging.getLogger(__name__)
-try:
-    import PyPDF2
-    PDF_LIB_AVAILABLE = True
-except ImportError:
-    try:
-        import pdfplumber
-        PDF_LIB_AVAILABLE = True
-    except ImportError:
-        PDF_LIB_AVAILABLE = False
-        print("Warning: NO PDF LIBRARY FOUND")
 
+warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 load_dotenv()
@@ -236,40 +214,53 @@ def load_url(url, driver, max_retries=3):
             driver.set_page_load_timeout(10) 
             driver.get(url)
             return driver
-        except TimeoutException as e:
-            logger.error(f"Attempt {attempt + 1}/{max_retries} timeout for {url}, creating new driver...")
+        except TimeoutException:
+            print(f"Attempt {attempt + 1}/{max_retries} timeout for {url}, creating new driver...")
             time.sleep(2)
             if attempt < max_retries - 1:  # not last attempt
                 try:
                     driver.quit()
                     driver = webdriver.Firefox()
                 except Exception as driver_e:
-                    logger.error(f"Failed to create new driver: {driver_e}")
+                    print(f"Failed to create new driver: {driver_e}")
                     return driver
-        except Exception as e:
-            logger.error(f"Attempt {attempt + 1}/{max_retries} failed to load URL: {url}", exc_info=True)
+        except Exception:
+            print(f"Attempt {attempt + 1}/{max_retries} failed to load URL: {url}")
             time.sleep(2)
             if attempt < max_retries - 1:  # not last attempt
                 try:
                     driver.quit()
                     driver = webdriver.Firefox()
                 except Exception as driver_e:
-                    logger.error(f"Failed to create new driver: {driver_e}")
+                    print(f"Failed to create new driver: {driver_e}")
                     return driver
     return driver
 
 def check_text_for_block(text):
-    """Check if extracted text indicates the page was blocked. Returns error string or None."""
+    """
+    Check if extracted text indicates the page was blocked.
+    
+    Returns:
+        tuple: (ErrorCode, str) - error code and message, or (None, None) if no block detected
+    """
     if not text:
-        return None
+        return None, None
     text_lower = text.lower()
-    if "you have been blocked" in text_lower or "attention required" in text_lower:
-        return "BLOCKED: Access denied by website security"
+    
+    # All Cloudflare-related blocks
     if "cloudflare" in text_lower and "ray id" in text_lower:
-        return "BLOCKED: Cloudflare protection"
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "BLOCKED: Cloudflare protection"
+    if ("you have been blocked" in text_lower or "attention required" in text_lower) and "cloudflare" in text_lower:
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "BLOCKED: Cloudflare security"
+    
+    # Generic access denied (non-Cloudflare)
+    if "you have been blocked" in text_lower or "attention required" in text_lower:
+        return ErrorCode.ACCESS_DENIED, "BLOCKED: Access denied by website security"
     if "access denied" in text_lower and len(text) < 2000:
-        return "BLOCKED: Access denied"
-    return None
+        return ErrorCode.ACCESS_DENIED, "BLOCKED: Access denied"
+    
+    return None, None
+
 
 def fetch_with_selenium(source_url, driver=None): #general selenium function for fetching text from page, not specific to congress.gov. More robust than beautifulsoup to attempt to assure accuracy.
     """
@@ -286,7 +277,7 @@ def fetch_with_selenium(source_url, driver=None): #general selenium function for
             driver = webdriver.Firefox()
         driver = load_url(source_url, driver)
         
-        wait = WebDriverWait[Any | WebDriver](driver, 10)
+        wait = WebDriverWait(driver, 10)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         
         # wait for page load 
@@ -392,7 +383,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         result = cursor.fetchone()
 
         if not result:
-            return {"success": False, "processed_id": None, "warning": "No HTML to process"}
+            return {"success": False, "processed_id": None, "warning": "No HTML to process", "error_code": ErrorCode.UNKNOWN_ERROR.value, "extraction_method": None}
         
         id_val, raw_content, source_url = result 
         
@@ -401,7 +392,8 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             pdf_text = extract_text_from_pdf(source_url)
             if pdf_text and len(pdf_text.strip()) > 0:
                 processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
-                return {"success": processed_id is not None, "processed_id": processed_id, "warning": None}
+                return {"success": processed_id is not None, "processed_id": processed_id, "warning": None, 
+                        "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value, "extraction_method": "pdf"}
             else:
                 warning = f"PDF extraction failed for {source_url}, fell back to normal parsing"
         
@@ -415,7 +407,9 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 if pdf_text and len(pdf_text.strip()) > 0:
                     processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
                     return {"success": processed_id is not None, "processed_id": processed_id,
-                            "warning": f"Extracted text from embedded PDF: {embedded_url}"}
+                            "warning": f"Extracted text from embedded PDF: {embedded_url}",
+                            "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                            "extraction_method": "embedded_pdf"}
                 else:
                     warning = f"Embedded PDF extraction failed for {embedded_url}, falling back to normal parsing"
             else:
@@ -430,7 +424,9 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     if len(embed_text) >= MIN_BILL_TEXT_LENGTH:
                         processed_id = store_txt(connection, id_val, embed_text, source_url, allow_duplicates=allow_duplicates)
                         return {"success": processed_id is not None, "processed_id": processed_id,
-                                "warning": f"Extracted text from embedded document: {embedded_url}"}
+                                "warning": f"Extracted text from embedded document: {embedded_url}",
+                                "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                                "extraction_method": "embedded_doc"}
                     else:
                         warning = f"Embedded doc at {embedded_url} had little text, falling back to normal parsing"
                 except Exception:
@@ -474,12 +470,16 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 # Remove empty lines from congress.gov text
                 body = remove_empty_lines(body)
                 processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
-                return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
+                return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
+                        "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                        "extraction_method": "congress_selenium"}
 
             # Remove empty lines from congress.gov text
             all_text = remove_empty_lines(all_text)
             processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
-            return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
+            return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
+                    "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                    "extraction_method": "congress_selenium"}
         
         # For all other sites, first try BeautifulSoup, then check if content is dynamically loaded
         else:
@@ -498,17 +498,21 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             if len(cleaned_text) < MIN_BILL_TEXT_LENGTH:
                 needs_selenium = True
             
+            # Track extraction method
+            extraction_method = "beautifulsoup"
+            
             # pass to general selenium extractor. 
             if needs_selenium:
                 selenium_text = fetch_with_selenium(source_url, driver=driver)
                 
-                # Check if page was blocked
-                block_error = check_text_for_block(selenium_text)
-                if block_error:
-                    return {"success": False, "processed_id": None, "warning": None, "error": block_error}
-                
+                block_code, block_error = check_text_for_block(selenium_text)
+                if block_code:
+                    return {"processed_id": None, "warning": None, "error": block_error, "error_code": block_code.value, 
+                            "stage": "text_extraction", "extraction_method": "selenium"}
+
                 if selenium_text and len(selenium_text) > len(cleaned_text):
                     cleaned_text = selenium_text
+                    extraction_method = "selenium"
                 else:
                     if not warning:
                         warning = "Selenium fallback did not improve text extraction results"
@@ -521,11 +525,13 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     cleaned_text = cleaned_text[bill_start_index:]
         
             processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
-            return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning}
+            return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
+                    "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                    "extraction_method": extraction_method}
 
     
     except Error as e:
-        return {"success": False, "processed_id": None, "warning": f"Database error: {e}"}
+        return {"success": False, "processed_id": None, "warning": f"Database error: {e}", "error_code": ErrorCode.DATABASE_ERROR.value, "extraction_method": None}
     finally:
         try: # handles unread results from query for duplicates, occurs when duplicate allowed once and multiple ids accesible for each URL
             # Only quit driver if we created it ourselves
@@ -576,19 +582,3 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
                 cursor.close()
         except:
             pass
-
-# NOTES: works for congress.gov. Needs exception handling and output processing for other sources (as it's just outputting soup output)
-# returned value needs to be saved in database (table 2) and lastrow row id needs to be returned. Also make sure this traverses the 
-# entire database. Changes on Jan 4. 
-
-
-
-
-            
-
-
-
-
-                
-                
-            

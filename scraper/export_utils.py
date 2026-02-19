@@ -5,7 +5,6 @@ import csv
 from collections import defaultdict
 from urllib.parse import urlparse
 from mysql.connector import Error
-import time
 
 
 def compute_domain_metrics(results):

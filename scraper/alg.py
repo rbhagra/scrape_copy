@@ -1,9 +1,5 @@
-## scraper
-from http.client import responses
-
 import requests
-from bs4 import BeautifulSoup
-from bs4 import XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import warnings
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -92,10 +88,6 @@ if __name__ == "__main__":
             print("-" * 40)
 
     else:
-        print (data)
-
-
-
-
+        print(data)
 
 

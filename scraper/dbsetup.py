@@ -1,4 +1,3 @@
-import mysql.connector
 from mysql.connector import Error
 from dbconnection import create_connection
 import os

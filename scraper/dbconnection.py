@@ -1,7 +1,7 @@
 import mysql.connector
 from mysql.connector import Error
 
-# connection setup
+
 def create_connection(host_name, user_name, password, database_name):
     try:
         connection = mysql.connector.connect(
@@ -10,15 +10,9 @@ def create_connection(host_name, user_name, password, database_name):
             password=password,
             database=database_name
         )
-        # Connection established - no print to reduce overall nosie
-
     except Error as e:
         print("Error while connecting to MySQL", e)
 
     return connection
-
-
-
-
 
 

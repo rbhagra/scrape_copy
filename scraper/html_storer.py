@@ -1,7 +1,8 @@
 import requests
-import mysql.connector
+import re
 from mysql.connector import Error
 from dbconnection import create_connection
+from error_codes import ErrorCode
 from dotenv import load_dotenv
 import os
 
@@ -10,6 +11,63 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+
+
+def is_federal_register_url(url):
+
+    return "federalregister.gov/documents/" in url
+
+
+def extract_federal_register_doc(url):
+    """
+    extracts the document number from the url
+    """ 
+
+    match = re.search(r'federalregister\.gov/documents/\d{4}/\d{2}/\d{2}/([^/]+)', url)
+    if match:
+        return match.group(1)
+    return None
+
+
+def retrieve_federal_register_html(url):
+    """
+    Fetch HTML content from Federal Register API.
+
+    """
+    doc_number = extract_federal_register_doc_number(url)
+    if not doc_number:
+        print(f"Could not extract document number from Federal Register URL: {url}")
+        return None
+    
+    api_url = f"https://www.federalregister.gov/api/v1/documents/{doc_number}"
+    try:
+        response = requests.get(api_url, timeout=15)
+        if response.status_code != 200:
+            print(f"Federal Register API returned status {response.status_code}")
+            return None
+        
+        data = response.json()
+        
+        body_html_url = data.get("body_html_url")
+        if body_html_url:
+            html_response = requests.get(body_html_url, timeout=15)
+            if html_response.status_code == 200:
+                return html_response.text
+        
+        full_text_xml_url = data.get("full_text_xml_url")
+        if full_text_xml_url:
+            xml_response = requests.get(full_text_xml_url, timeout=15)
+            if xml_response.status_code == 200:
+                return xml_response.text
+        
+        print(f"Federal Register API did not return HTML or XML URL for {doc_number}")
+        return None
+        
+    except Exception as e:
+        print(f"Error fetching from Federal Register API: {e}")
+        return None
+
+
 def retrieve_html(url):
     try:
         response = requests.get(url, timeout=15)
@@ -20,100 +78,114 @@ def retrieve_html(url):
         return None
 
 
-def _is_cloudflare_or_block_page(html_content):
+def classify_block_error(html_content):
     """
     Detect Cloudflare block/challenge or generic block pages in raw HTML.
-    Returns error message string if blocked, None otherwise.
+    
+    Returns:
+        tuple: (ErrorCode, str) - error code and human-readable message, or (None, None) if no block detected
     """
     if not html_content:
-        return None
+        return None, None
     lower = html_content.lower()
-    # Cloudflare block page indicators
+    
+    # All Cloudflare-related blocks consolidated under CLOUDFLARE_ATTENTION_REQUIRED
     if "attention required" in lower and "cloudflare" in lower:
-        return "Cloudflare: Attention required / block page (enable cookies or unblock)"
-    if "you have been blocked" in lower:
-        return "Cloudflare: You have been blocked (site security triggered)"
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Cloudflare: Attention required / block page (enable cookies or unblock)"
+    if "you have been blocked" in lower and "cloudflare" in lower:
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Cloudflare: You have been blocked (site security triggered)"
     if "cloudflare" in lower and ("ray id" in lower or "please enable cookies" in lower):
-        return "Cloudflare: Block or challenge page detected"
-    # Generic block
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Cloudflare: Block or challenge page detected"
+    
+    # Non-Cloudflare blocks
     if "blocked" in lower and "unable to access" in lower and len(html_content) < 15000:
-        return "Scraper blocked: Unable to access (security/block page)"
-    return None
+        return ErrorCode.SCRAPER_BLOCKED, "Scraper blocked: Unable to access (security/block page)"
+    
+    return None, None
 
 
 def store_html(url, allow_duplicates=False, driver=None):
     """
-    Returns dict: {"html_id": int or None, "warning": str or None, "error": str or None}
-    
+    Returns dict: {"html_id": int or None, "warning": str or None, "error": str or None, "stage": str}
+
     Args:
         url: URL to fetch and store
         allow_duplicates: Whether to allow duplicate URLs
-        driver: Optional existing WebDriver instance to reuse (avoids opening new browser windows)
+        driver: Optional existing WebDriver instance to reuse
     """
     connection = None
     cursor = None
-    html_content = retrieve_html(url)
-    # allows retries for retrireiving html
-    max_retries = 2
+    
+    if is_federal_register_url(url):
+        html_content = retrieve_federal_register_html(url)
+        max_retries = 1
+    else:
+        html_content = retrieve_html(url)
+        max_retries = 2
+    
     retry_count = 0
     while html_content is None and retry_count < max_retries:
-        html_content = retrieve_html(url)
+        if is_federal_register_url(url):
+            html_content = retrieve_federal_register_html(url)
+        else:
+            html_content = retrieve_html(url)
         retry_count += 1
-    
-    if html_content is None:
-        return {"html_id": None, "warning": None, "error": "Failed to retrieve HTML after retries"}
 
-    block_error = _is_cloudflare_or_block_page(html_content)
-    if block_error:
-        return {"html_id": None, "warning": None, "error": block_error}
+    if html_content is None:
+        return {"html_id": None, "warning": None, "error": "Failed to retrieve HTML after retries", "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "html_fetch", "extraction_method": None}
+
+    error_code, error_msg = classify_block_error(html_content)
+    if error_code:
+        return {"html_id": None, "warning": None, "error": error_msg, "error_code": error_code.value, "stage": "html_fetch", "extraction_method": None}
 
     try:
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
-        
-        # Check if URL already exists in database
+
         if not allow_duplicates:
             check_query = "SELECT id FROM leg_html WHERE source_url = %s"
             cursor.execute(check_query, (url,))
             existing = cursor.fetchone()
-            
+
             if existing:
-                return {"html_id": existing[0], "warning": "Duplicate URL, using existing record", "error": None}
-        
+                return {"html_id": existing[0], "warning": "Duplicate URL, using existing record", "error": None, "error_code": ErrorCode.DUPLICATE_SKIPPED.value, "stage": "complete", "extraction_method": None}
+
         insert_query = "INSERT INTO leg_html (source_url, raw_content) VALUES (%s, %s)"
         cursor.execute(insert_query, (url, html_content))
         connection.commit()
         html_id = cursor.lastrowid
-        
+
         from txt_storer import retreive_txt
         txt_result = retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id, driver=driver)
-        
-        # Capture warning and error from text extraction
+
         warning = None
         error = None
+        error_code = None
+        extraction_method = None
+        stage = "complete"
         if txt_result:
             if txt_result.get("warning"):
                 warning = txt_result["warning"]
-            # Check for block/access errors
+            extraction_method = txt_result.get("extraction_method")
             if txt_result.get("error"):
                 error = txt_result["error"]
+                error_code = txt_result.get("error_code")
+                stage = "text_extraction"
             elif not txt_result.get("success"):
                 warning = txt_result.get("warning") or "Text extraction failed"
-        
-        return {"html_id": html_id, "warning": warning, "error": error}
+                error_code = txt_result.get("error_code")
+                stage = "text_extraction"
+
+        return {"html_id": html_id, "warning": warning, "error": error, "error_code": error_code, "stage": stage, "extraction_method": extraction_method}
 
     except Error as e:
-        return {"html_id": None, "warning": None, "error": f"Database error: {e}"}
+        return {"html_id": None, "warning": None, "error": f"Database error: {e}", "error_code": ErrorCode.DATABASE_ERROR.value, "stage": "html_fetch", "extraction_method": None}
     finally:
         try:
             if cursor:
-                # Consume any unread results before closing
                 cursor.fetchall() if cursor.with_rows else None
                 cursor.close()
             if connection and connection.is_connected():
                 connection.close()
         except:
             pass
-
-
-
