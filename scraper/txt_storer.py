@@ -482,38 +482,41 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                     "extraction_method": "congress_selenium"}
         if is_federal_reg_url(source_url):
-            federal_reg_id= extract_federal_reg_id(source_url)
+            federal_reg_id = extract_federal_reg_id(source_url)
             if not federal_reg_id:
                 print(f"Could not extract document number from Federal Register URL: {source_url}")
-                return None
+                return {"success": False, "processed_id": None, "warning": None, "error": "Could not extract Federal Register document ID",
+                        "error_code": ErrorCode.UNKNOWN_ERROR.value, "stage": "text_extraction", "extraction_method": None}
             api_url = f"https://www.federalregister.gov/api/v1/documents/{federal_reg_id}.json?fields[]=raw_text_url"
-            response = requests.get(api_url, timeout=15)
-            if response.status_code != 200:
-                print(f"Federal Register API returned status {response.status_code}")
-                return None
-            data = response.json()
+            api_response = requests.get(api_url, timeout=15)
+            if api_response.status_code != 200:
+                print(f"Federal Register API returned status {api_response.status_code}")
+                return {"success": False, "processed_id": None, "warning": None, "error": f"Federal Register API returned {api_response.status_code}",
+                        "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "text_extraction", "extraction_method": None}
+            data = api_response.json()
             raw_text_url = data.get("raw_text_url")
             if not raw_text_url:
                 print(f"Federal Register API did not return raw_text_url for {federal_reg_id}")
-                return None
-            response = requests.get(raw_text_url, timeout=15)
-            if response.status.cod == 200:
-                body_text = response.text
-                if len(body_text) >= MIN_BILL_TEXT_LENGTH:
-                    start_index = body_text.find("<html>")
-                    end_index = body_text.find("</html>")
-                    if start_index != -1 and end_index != -1:
-                        body_text = body_text[start_index:end_index]
-                    processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates)
-                    return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
-                            "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
-                            "extraction_method": "federal_register"}
-                
-                else:
-                    warning = f"Federal Register body had insufficient text"
-                    return {"success": False, "processed_id": None, "warning": warning,
-                            "error_code": ErrorCode.INSUFFICIENT_TEXT.value, "extraction_method": "federal_register"}
-        
+                return {"success": False, "processed_id": None, "warning": None, "error": "No raw_text_url in API response",
+                        "error_code": ErrorCode.UNKNOWN_ERROR.value, "stage": "text_extraction", "extraction_method": None}
+            text_response = requests.get(raw_text_url, timeout=15)
+            if text_response.status_code != 200:
+                return {"success": False, "processed_id": None, "warning": None,
+                        "error": f"Failed to fetch raw text: HTTP {text_response.status_code}",
+                        "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "text_extraction", "extraction_method": None}
+            body_text = text_response.text
+            if len(body_text) >= MIN_BILL_TEXT_LENGTH:
+                start_index = body_text.find("<html>")
+                end_index = body_text.find("</html>")
+                if start_index != -1 and end_index != -1:
+                    body_text = body_text[start_index:end_index]
+                processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates)
+                return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
+                        "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                        "extraction_method": "federal_register"}
+            return {"success": False, "processed_id": None, "warning": "Federal Register body had insufficient text",
+                    "error_code": ErrorCode.INSUFFICIENT_TEXT.value, "extraction_method": "federal_register"}
+
         # For all other sites, first try BeautifulSoup, then check if content is dynamically loaded
         else:
             # Create a copy of soup for detection (original soup will be modified)
