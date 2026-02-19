@@ -15,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from html_storer import is_federal_reg_url; from html_storer import extract_federal_reg_id
 
 warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -480,6 +481,38 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
                     "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                     "extraction_method": "congress_selenium"}
+        if is_federal_reg_url(source_url):
+            federal_reg_id= extract_federal_reg_id(source_url)
+            if not federal_reg_id:
+                print(f"Could not extract document number from Federal Register URL: {source_url}")
+                return None
+            api_url = f"https://www.federalregister.gov/api/v1/documents/{federal_reg_id}.json?fields[]=raw_text_url"
+            response = requests.get(api_url, timeout=15)
+            if response.status_code != 200:
+                print(f"Federal Register API returned status {response.status_code}")
+                return None
+            data = response.json()
+            raw_text_url = data.get("raw_text_url")
+            if not raw_text_url:
+                print(f"Federal Register API did not return raw_text_url for {federal_reg_id}")
+                return None
+            response = requests.get(raw_text_url, timeout=15)
+            if response.status.cod == 200:
+                body_text = response.text
+                if len(body_text) >= MIN_BILL_TEXT_LENGTH:
+                    start_index = body_text.find("<html>")
+                    end_index = body_text.find("</html>")
+                    if start_index != -1 and end_index != -1:
+                        body_text = body_text[start_index:end_index]
+                    processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates)
+                    return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
+                            "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                            "extraction_method": "federal_register"}
+                
+                else:
+                    warning = f"Federal Register body had insufficient text"
+                    return {"success": False, "processed_id": None, "warning": warning,
+                            "error_code": ErrorCode.INSUFFICIENT_TEXT.value, "extraction_method": "federal_register"}
         
         # For all other sites, first try BeautifulSoup, then check if content is dynamically loaded
         else:

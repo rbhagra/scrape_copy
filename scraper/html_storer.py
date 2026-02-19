@@ -13,56 +13,52 @@ user = os.getenv("user_name")
 database = os.getenv("database_name")
 
 
-def is_federal_register_url(url):
+def is_federal_reg_url(url):
 
     return "federalregister.gov/documents/" in url
 
 
-def extract_federal_register_doc(url):
+def extract_federal_reg_id(url):
     """
     extracts the document number from the url
     """ 
-
-    match = re.search(r'federalregister\.gov/documents/\d{4}/\d{2}/\d{2}/([^/]+)', url)
-    if match:
-        return match.group(1)
+    if "federalregister.gov/documents/" not in url:
+        return None
+    # path is .../documents/YYYY/MM/DD/DOC-ID/
+    path = url.split("federalregister.gov/documents/")[-1]
+    parts = path.split("/")
+    if len(parts) >= 4:
+        return parts[3]  
     return None
 
 
-def retrieve_federal_register_html(url):
-    """
-    Fetch HTML content from Federal Register API.
-
-    """
-    doc_number = extract_federal_register_doc_number(url)
-    if not doc_number:
+def retrieve_federal_reg_html(url):
+ #fetches HTML content using Federal Register API
+    doc_id = extract_federal_reg_id(url)
+    if not doc_id:
         print(f"Could not extract document number from Federal Register URL: {url}")
         return None
-    
-    api_url = f"https://www.federalregister.gov/api/v1/documents/{doc_number}"
+
+    api_url = f"https://www.federalregister.gov/api/v1/documents/{doc_id}.json?fields[]=body_html_url"
     try:
         response = requests.get(api_url, timeout=15)
         if response.status_code != 200:
             print(f"Federal Register API returned status {response.status_code}")
             return None
-        
+
         data = response.json()
-        
-        body_html_url = data.get("body_html_url")
-        if body_html_url:
-            html_response = requests.get(body_html_url, timeout=15)
-            if html_response.status_code == 200:
-                return html_response.text
-        
-        full_text_xml_url = data.get("full_text_xml_url")
-        if full_text_xml_url:
-            xml_response = requests.get(full_text_xml_url, timeout=15)
-            if xml_response.status_code == 200:
-                return xml_response.text
-        
-        print(f"Federal Register API did not return HTML or XML URL for {doc_number}")
+        html_url = data.get("body_html_url")
+        if not html_url:
+            print(f"Federal Register API did not return body_html_url for {doc_id}")
+            return None
+
+        html_response = requests.get(html_url, timeout=15)
+        if html_response.status_code == 200:
+            return html_response.text
+
+        print(f"Failed to fetch HTML from body_html_url: status {html_response.status_code}")
         return None
-        
+
     except Exception as e:
         print(f"Error fetching from Federal Register API: {e}")
         return None
@@ -89,7 +85,7 @@ def classify_block_error(html_content):
         return None, None
     lower = html_content.lower()
     
-    # All Cloudflare-related blocks consolidated under CLOUDFLARE_ATTENTION_REQUIRED
+    # All Cloudflare-related blocks 
     if "attention required" in lower and "cloudflare" in lower:
         return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Cloudflare: Attention required / block page (enable cookies or unblock)"
     if "you have been blocked" in lower and "cloudflare" in lower:
@@ -116,8 +112,8 @@ def store_html(url, allow_duplicates=False, driver=None):
     connection = None
     cursor = None
     
-    if is_federal_register_url(url):
-        html_content = retrieve_federal_register_html(url)
+    if is_federal_reg_url(url):
+        html_content = retrieve_federal_reg_html(url)
         max_retries = 1
     else:
         html_content = retrieve_html(url)
@@ -125,8 +121,8 @@ def store_html(url, allow_duplicates=False, driver=None):
     
     retry_count = 0
     while html_content is None and retry_count < max_retries:
-        if is_federal_register_url(url):
-            html_content = retrieve_federal_register_html(url)
+        if is_federal_reg_url(url):
+            html_content = retrieve_federal_reg_html(url)
         else:
             html_content = retrieve_html(url)
         retry_count += 1
