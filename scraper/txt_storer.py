@@ -453,27 +453,40 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
 
             all_text = driver.find_element(By.TAG_NAME, "body").text
             start = "<DOC>"
-            end_1= "<All>"
-            end_2 = "<Attest:>" # 2 options for finding end of TXT, as this is not uniformly marked
+            end_1 = "<All>"
+            end_2 = "<Attest:>"  # 2 options for finding end of TXT, as this is not uniformly marked
 
-        
             if start in all_text:
                 start_index = all_text.find(start)
-                
-                if end_1 or end_2 in all_text:
-                    end_index = all_text.find(end_1)
-                    if end_index == -1:
-                        end_index = all_text.find(end_2)
-                    body = all_text[start_index : end_index]
+
+                # Only slice if we actually find a valid end marker after the start
+                end_candidates = []
+                if end_1 in all_text:
+                    end_idx = all_text.find(end_1, start_index)
+                    if end_idx != -1:
+                        end_candidates.append(end_idx)
+                if end_2 in all_text:
+                    end_idx = all_text.find(end_2, start_index)
+                    if end_idx != -1:
+                        end_candidates.append(end_idx)
+
+                if end_candidates:
+                    end_index = max(end_candidates)
+                    body = all_text[start_index:end_index]
                 else:
-                    body = all_text[start_index : ] # if can't find these markers, take all that is returned
-                
+                    # If no reliable end marker is found, take everything from <DOC> onward
+                    body = all_text[start_index:]
+
                 # Remove empty lines from congress.gov text
                 body = remove_empty_lines(body)
                 processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
-                return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
-                        "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
-                        "extraction_method": "congress_selenium"}
+                return {
+                    "success": processed_id is not None,
+                    "processed_id": processed_id,
+                    "warning": warning,
+                    "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
+                    "extraction_method": "congress_selenium",
+                }
 
             # Remove empty lines from congress.gov text
             all_text = remove_empty_lines(all_text)
