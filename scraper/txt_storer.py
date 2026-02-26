@@ -16,6 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from html_storer import is_federal_reg_url; from html_storer import extract_federal_reg_id
+from detail_extract import congress_extract
 
 warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -25,6 +26,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+congress_api_key = os.getenv("congress_api_key")
 
 # Minimum character threshold for valid bill text
 MIN_BILL_TEXT_LENGTH = 500
@@ -34,11 +36,11 @@ def is_pdf_url(url):
     Check if a URL points to a PDF file.
     Returns True if URL ends with .pdf or contains PDF indicators.
     """
+    if not url:
+        return False
     url_lower = url.lower()
-    # Check file extension
     if url_lower.endswith('.pdf'):
         return True
-    # Check URL parameters that might indicate PDF
     if '.pdf' in url_lower or 'format=pdf' in url_lower or 'type=pdf' in url_lower:
         return True
     return False
@@ -92,6 +94,8 @@ def extract_text_from_pdf(url):
 
 def _looks_like_document_url(url):
     """Check if a URL looks like it points to a document (PDF, DOCX, etc.)."""
+    if not url:
+        return False
     url_lower = url.lower()
     doc_extensions = ['.pdf', '.doc', '.docx', '.txt', '.rtf']
     for ext in doc_extensions:
@@ -208,7 +212,7 @@ def is_dynamically_loaded(raw_content, soup):
     
     return False
 
-def load_url(url, driver, max_retries=3):
+def pload_url(url, driver, max_retries=3):
     # loads url with up to 3 retries, creates new driver for each retry
     for attempt in range(max_retries):
         try:
@@ -433,7 +437,63 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 except Exception:
                     warning = f"Could not fetch embedded doc at {embedded_url}, falling back to normal parsing"
 
-        if "congress.gov" in source_url.lower(): #checks for congress.gov to utilize TXT feature via selenium. Else deafults to processing HTML via BS
+        if "congress.gov" in source_url.lower():
+            congress_num, bill_type, bill_number = congress_extract(source_url.lower())
+            api_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type}/{bill_number}/text?format=json&api_key={congress_api_key}"
+            response = requests.get(api_url)
+            data = response.json()
+# priority of which bill version we scrape based on what is returned from congress API
+            VERSION_PRIORITY = ["Enrolled Bill", "Public Law", "Engrossed in House", "Engrossed in Senate",
+                                "Placed on Calendar Senate", "Placed on Calendar House",
+                                "Introduced in House", "Introduced in Senate"]
+# for now, test pdf but will test between pdf and html 
+            pdf_url = None
+            for preferred in VERSION_PRIORITY:
+                for version in data.get("textVersions", []):
+                    if version.get("type") == preferred:
+                        for fmt in version.get("formats", []):
+                            if fmt.get("type") == "PDF":
+                                pdf_url = fmt["url"]
+                                break
+                    if pdf_url:
+                        break
+                if pdf_url:
+                    break
+            if is_pdf_url(pdf_url):
+                pdf_text = extract_text_from_pdf(pdf_url)
+                if pdf_text and len(pdf_text.strip()) > 0:
+                    processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+                    return {"success": processed_id is not None, "processed_id": processed_id, "warning": None, 
+                            "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value, "extraction_method": "pdf"}
+                else:
+                    warning = f"PDF/API extraction failed for {source_url}, falling back to selenium based text storing"
+        #  #--- HTM version, will test between the two---
+        #     htm_url = None
+        #     for preferred in VERSION_PRIORITY:
+        #         for version in data.get("textVersions", []):
+        #             if version.get("type") == preferred:
+        #                 for fmt in version.get("formats", []):
+        #                     if fmt.get("type") == "Formatted Text":
+        #                         htm_url = fmt["url"]
+        #                         break
+        #             if htm_url:
+        #                 break
+        #         if htm_url:
+        #             break
+        #     if htm_url:
+        #         htm_response = requests.get(htm_url)
+        #         if htm_response.status_code == 200:
+        #             soup = BeautifulSoup(htm_response.text, "html.parser")
+        #             htm_text = soup.get_text(separator="\n", strip=True)
+        #             if htm_text and len(htm_text.strip()) > 0:
+        #                 processed_id = store_txt(connection, id_val, htm_text, source_url, allow_duplicates=allow_duplicates)
+        #                 return {"success": processed_id is not None, "processed_id": processed_id, "warning": None,
+        #                         "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value, "extraction_method": "Congress.gov API (HTM)"}
+        #             else:
+        #                 warning = f"HTM/API extraction failed for {source_url}, falling back to selenium based text storing"
+        #         else:
+        #             warning = f"HTM fetch returned {htm_response.status_code} for {htm_url}, falling back to selenium based text storing"
+        
             # Use provided driver or create new one
             if driver is None:
                 driver = webdriver.Firefox()
