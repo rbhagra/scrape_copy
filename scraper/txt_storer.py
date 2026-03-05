@@ -280,7 +280,7 @@ def fetch_with_selenium(source_url, driver=None): #general selenium function for
     try:
         if owns_driver:
             driver = webdriver.Firefox()
-        driver = load_url(source_url, driver)
+        driver = pload_url(source_url, driver)
         
         wait = WebDriverWait(driver, 10)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
