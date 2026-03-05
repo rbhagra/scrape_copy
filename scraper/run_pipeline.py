@@ -19,6 +19,7 @@ from dbconnection import create_connection
 from html_storer import store_html
 from export_utils import export_all_tables, compute_domain_metrics
 from error_codes import ErrorCode
+from txt_storer import is_pdf_url
 from selenium import webdriver
 
 # Load environment variables
@@ -188,8 +189,8 @@ def run_pipeline(config, results_dir):
     print(f"# running pipeline, writing to results directory: {results_dir}")
     print(f"{'#'*70}\n")
     
-    # Max seconds to spend on a single URL before skipping it
     PER_URL_TIMEOUT = 20
+    PDF_URL_TIMEOUT = 120
     
     # Track pipeline start time
     pipeline_start_time = time.time()
@@ -203,6 +204,7 @@ def run_pipeline(config, results_dir):
         for idx, url in enumerate(URLs, 1):
             # Track per-URL timing
             url_start_time = time.time()
+            url_timeout = PDF_URL_TIMEOUT if is_pdf_url(url) else PER_URL_TIMEOUT
 
             # Run process_url in a daemon thread with a timeout so one
             # stuck URL can never block the rest of the pipeline.
@@ -213,16 +215,15 @@ def run_pipeline(config, results_dir):
 
             thread = threading.Thread(target=_run, daemon=True)
             thread.start()
-            thread.join(timeout=PER_URL_TIMEOUT)
+            thread.join(timeout=url_timeout)
 
             if thread.is_alive():
-                # Thread is still running — URL timed out
                 result = {
                     "url": url,
                     "success": False,
                     "html_id": None,
                     "warning": None,
-                    "error": f"Timed out after {PER_URL_TIMEOUT}s",
+                    "error": f"Timed out after {url_timeout}s",
                     "error_code": ErrorCode.PIPELINE_TIMEOUT.value,
                     "stage": "timeout",
                     "extraction_method": None

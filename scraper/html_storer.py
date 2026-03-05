@@ -64,7 +64,7 @@ def retrieve_federal_reg_html(url):
         return None
 
 
-def retrieve_html(url):
+def retrieve_html(url, timeout=15):
     try:
         response = requests.get(url, timeout=15)
         html_content = response.text
@@ -111,12 +111,15 @@ def store_html(url, allow_duplicates=False, driver=None):
     """
     connection = None
     cursor = None
+
+    from txt_storer import is_pdf_url
+    timeout = 100 if is_pdf_url(url) else 15
     
     if is_federal_reg_url(url):
         html_content = retrieve_federal_reg_html(url)
         max_retries = 1
     else:
-        html_content = retrieve_html(url)
+        html_content = retrieve_html(url, timeout=timeout)
         max_retries = 2
     
     retry_count = 0
@@ -124,7 +127,7 @@ def store_html(url, allow_duplicates=False, driver=None):
         if is_federal_reg_url(url):
             html_content = retrieve_federal_reg_html(url)
         else:
-            html_content = retrieve_html(url)
+            html_content = retrieve_html(url, timeout=timeout)
         retry_count += 1
 
     if html_content is None:
