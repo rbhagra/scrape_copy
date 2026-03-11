@@ -252,13 +252,13 @@ def check_text_for_block(text):
         return None, None
     text_lower = text.lower()
     
-    # All Cloudflare-related blocks
     if "cloudflare" in text_lower and "ray id" in text_lower:
         return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "BLOCKED: Cloudflare protection"
     if ("you have been blocked" in text_lower or "attention required" in text_lower) and "cloudflare" in text_lower:
         return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "BLOCKED: Cloudflare security"
     
-    # Generic access denied (non-Cloudflare)
+    if "the request could not be satisfied" in text_lower and "error" in text_lower:
+        return ErrorCode.SCRAPER_BLOCKED, "BLOCKED: Request could not be satisfied"
     if "you have been blocked" in text_lower or "attention required" in text_lower:
         return ErrorCode.ACCESS_DENIED, "BLOCKED: Access denied by website security"
     if "access denied" in text_lower and len(text) < 2000:
@@ -391,6 +391,12 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             return {"success": False, "processed_id": None, "warning": "No HTML to process", "error_code": ErrorCode.UNKNOWN_ERROR.value, "extraction_method": None}
         
         id_val, raw_content, source_url = result 
+        
+        # Early block detection on raw HTML before any extraction attempt
+        block_code, block_error = check_text_for_block(raw_content)
+        if block_code:
+            return {"success": False, "processed_id": None, "warning": None, "error": block_error,
+                    "error_code": block_code.value, "stage": "text_extraction", "extraction_method": None}
         
         # Check if URL is a PDF - try PDF extraction first
         if is_pdf_url(source_url):

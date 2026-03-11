@@ -93,7 +93,9 @@ def classify_block_error(html_content):
     if "cloudflare" in lower and ("ray id" in lower or "please enable cookies" in lower):
         return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Cloudflare: Block or challenge page detected"
     
-    # Non-Cloudflare blocks
+    # non-cloudflare block, just based on searching text content
+    if "the request could not be satisfied" in lower and "error" in lower:
+        return ErrorCode.SCRAPER_BLOCKED, "Scraping blocked: Request could not be satisfied"
     if "blocked" in lower and "unable to access" in lower and len(html_content) < 15000:
         return ErrorCode.SCRAPER_BLOCKED, "Scraper blocked: Unable to access (security/block page)"
     
