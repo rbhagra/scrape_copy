@@ -24,7 +24,7 @@ def compute_domain_metrics(results):
     })
 
     for r in results:
-        domain = urlparse(r["url"]).netloc
+        domain = urlparse(r["url"]).netloc.removeprefix("www.")
         stats[domain]["total"] += 1
         if r["success"]:
             stats[domain]["success"] += 1
@@ -133,7 +133,7 @@ def export_all_tables(connection, results_dir, html_ids=None):
         connection, 
         "leg_html", 
         html_path,
-        columns=["id", "source_url", "raw_content", "created_at"],
+        columns=["id", "source_url", "HTML", "domain", "num_tries", "num_failures", "failure_type", "created_at"],
         where_clause=html_where if html_ids else None,
         params=params if html_ids else None
     )

@@ -18,7 +18,7 @@ connection_setup = create_connection(host, user, pw, database)
 #
 #     source_url: The direct link where the document was found.
 #
-#     raw_content: full html
+#     HTML: full html
 #
 #     created_at: timestamp of scrape
 #
@@ -54,7 +54,11 @@ def table_create():
                     CREATE TABLE IF NOT EXISTS leg_html (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         source_url VARCHAR(2048) NOT NULL,
-                        raw_content LONGTEXT,
+                        HTML LONGTEXT,
+                        domain VARCHAR(255),
+                        num_tries INT DEFAULT 0,
+                        num_failures INT DEFAULT 0,
+                        failure_type VARCHAR(100),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB;
                 """)

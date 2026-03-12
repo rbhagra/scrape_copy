@@ -71,9 +71,8 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
             
-        # queries source URL and raw_content from database
         query = """
-            SELECT h.source_url, h.raw_content
+            SELECT h.source_url, h.HTML
             FROM leg_processed p
             JOIN leg_html h ON p.raw_doc_id = h.id
             WHERE p.id = %s

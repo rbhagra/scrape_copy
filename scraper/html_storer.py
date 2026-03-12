@@ -1,5 +1,6 @@
 import requests
 import re
+from urllib.parse import urlparse
 from mysql.connector import Error
 from dbconnection import create_connection
 from error_codes import ErrorCode
@@ -85,7 +86,11 @@ def classify_block_error(html_content):
         return None, None
     lower = html_content.lower()
     
-    # All Cloudflare-related blocks 
+    # Cloudflare managed challenge ("Just a moment..." JS-only challenge page)
+    if "_cf_chl_opt" in lower or "/cdn-cgi/challenge-platform/" in lower:
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Blocked by clouflare)"
+    
+    # Cloudflare explicit block pages
     if "attention required" in lower and "cloudflare" in lower:
         return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Cloudflare: Attention required / block page (enable cookies or unblock)"
     if "you have been blocked" in lower and "cloudflare" in lower:
@@ -113,6 +118,7 @@ def store_html(url, allow_duplicates=False, driver=None):
     """
     connection = None
     cursor = None
+    domain = urlparse(url).netloc.removeprefix("www.")
 
     from txt_storer import is_pdf_url
     timeout = 100 if is_pdf_url(url) else 15
@@ -131,6 +137,9 @@ def store_html(url, allow_duplicates=False, driver=None):
         else:
             html_content = retrieve_html(url, timeout=timeout)
         retry_count += 1
+
+    num_tries = 1 + retry_count
+    num_failures = retry_count if html_content is not None else num_tries
 
     if html_content is None:
         return {"html_id": None, "warning": None, "error": "Failed to retrieve HTML after retries", "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "html_fetch", "extraction_method": None}
@@ -151,8 +160,8 @@ def store_html(url, allow_duplicates=False, driver=None):
             if existing:
                 return {"html_id": existing[0], "warning": "Duplicate URL, using existing record", "error": None, "error_code": ErrorCode.DUPLICATE_SKIPPED.value, "stage": "complete", "extraction_method": None}
 
-        insert_query = "INSERT INTO leg_html (source_url, raw_content) VALUES (%s, %s)"
-        cursor.execute(insert_query, (url, html_content))
+        insert_query = "INSERT INTO leg_html (source_url, HTML, domain, num_tries, num_failures) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(insert_query, (url, html_content, domain, num_tries, num_failures))
         connection.commit()
         html_id = cursor.lastrowid
 
@@ -164,6 +173,7 @@ def store_html(url, allow_duplicates=False, driver=None):
         error_code = None
         extraction_method = None
         stage = "complete"
+        failure_type = None
         if txt_result:
             if txt_result.get("warning"):
                 warning = txt_result["warning"]
@@ -171,11 +181,21 @@ def store_html(url, allow_duplicates=False, driver=None):
             if txt_result.get("error"):
                 error = txt_result["error"]
                 error_code = txt_result.get("error_code")
+                failure_type = error_code
                 stage = "text_extraction"
             elif not txt_result.get("success"):
                 warning = txt_result.get("warning") or "Text extraction failed"
                 error_code = txt_result.get("error_code")
+                failure_type = error_code
                 stage = "text_extraction"
+
+        if failure_type:
+            try:
+                update_query = "UPDATE leg_html SET failure_type = %s WHERE id = %s"
+                cursor.execute(update_query, (failure_type, html_id))
+                connection.commit()
+            except Error:
+                pass
 
         return {"html_id": html_id, "warning": warning, "error": error, "error_code": error_code, "stage": stage, "extraction_method": extraction_method}
 

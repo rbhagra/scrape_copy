@@ -370,7 +370,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         # If specific html_id provided, process that record
         if html_id:
             query = """
-            SELECT h.id, h.raw_content, h.source_url 
+            SELECT h.id, h.HTML, h.source_url 
             FROM leg_html h
             WHERE h.id = %s
             """
@@ -378,7 +378,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         else:
             # Fallback: find any unprocessed HTML
             query = """
-            SELECT h.id, h.raw_content, h.source_url 
+            SELECT h.id, h.HTML, h.source_url 
             FROM leg_html h
             LEFT JOIN leg_processed p ON h.id = p.raw_doc_id
             WHERE p.raw_doc_id IS NULL LIMIT 1
