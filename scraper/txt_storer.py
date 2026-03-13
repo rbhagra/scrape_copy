@@ -9,7 +9,7 @@ import warnings
 import requests
 import pymupdf
 import pymupdf4llm
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -362,6 +362,9 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
     connection = None
     warning = None
     owns_driver = False  # Track if we created the driver
+    start_time = time.time()
+    num_tries = 0
+    num_failures = 0
     try:
         from dbconnection import create_connection
         connection = create_connection(host,user , pw, database)
@@ -370,17 +373,17 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         # If specific html_id provided, process that record
         if html_id:
             query = """
-            SELECT h.id, h.HTML, h.source_url 
+            SELECT h.search_id, h.HTML, h.source_url 
             FROM leg_html h
-            WHERE h.id = %s
+            WHERE h.search_id = %s
             """
             cursor.execute(query, (html_id,))
         else:
             # Fallback: find any unprocessed HTML
             query = """
-            SELECT h.id, h.HTML, h.source_url 
+            SELECT h.search_id, h.HTML, h.source_url 
             FROM leg_html h
-            LEFT JOIN leg_processed p ON h.id = p.raw_doc_id
+            LEFT JOIN leg_processed p ON h.search_id = p.raw_doc_id
             WHERE p.raw_doc_id IS NULL LIMIT 1
             """
             cursor.execute(query)
@@ -390,7 +393,8 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         if not result:
             return {"success": False, "processed_id": None, "warning": "No HTML to process", "error_code": ErrorCode.UNKNOWN_ERROR.value, "extraction_method": None}
         
-        id_val, raw_content, source_url = result 
+        id_val, raw_content, source_url = result
+        domain = urlparse(source_url).netloc.removeprefix("www.")
         
         # Early block detection on raw HTML before any extraction attempt
         block_code, block_error = check_text_for_block(raw_content)
@@ -400,12 +404,17 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         
         # Check if URL is a PDF - try PDF extraction first
         if is_pdf_url(source_url):
+            num_tries += 1
             pdf_text = extract_text_from_pdf(source_url)
             if pdf_text and len(pdf_text.strip()) > 0:
-                processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+                processing_time = round(time.time() - start_time, 3)
+                processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates,
+                    domain=domain, num_tries=num_tries, num_failures=num_failures,
+                    text_processing_method="pdf", processing_time=processing_time)
                 return {"success": processed_id is not None, "processed_id": processed_id, "warning": None, 
                         "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value, "extraction_method": "pdf"}
             else:
+                num_failures += 1
                 warning = f"PDF extraction failed for {source_url}, fell back to normal parsing"
         
         soup = BeautifulSoup(raw_content, "lxml")  # assume LXML, but write a check with if statements to handle other formats and assign soup
@@ -414,17 +423,23 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         embedded_url = get_embedded_document_url(soup, source_url)
         if embedded_url:
             if is_pdf_url(embedded_url):
+                num_tries += 1
                 pdf_text = extract_text_from_pdf(embedded_url)
                 if pdf_text and len(pdf_text.strip()) > 0:
-                    processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
+                    processing_time = round(time.time() - start_time, 3)
+                    processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates,
+                        domain=domain, num_tries=num_tries, num_failures=num_failures,
+                        warnings_text=f"Extracted text from embedded PDF: {embedded_url}",
+                        text_processing_method="embedded_pdf", processing_time=processing_time)
                     return {"success": processed_id is not None, "processed_id": processed_id,
                             "warning": f"Extracted text from embedded PDF: {embedded_url}",
                             "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                             "extraction_method": "embedded_pdf"}
                 else:
+                    num_failures += 1
                     warning = f"Embedded PDF extraction failed for {embedded_url}, falling back to normal parsing"
             else:
-                # Non-PDF embedded doc — fetch it with requests and parse otherwise leave for selenium
+                num_tries += 1
                 try:
                     embed_resp = requests.get(embedded_url, timeout=30)
                     embed_resp.raise_for_status()
@@ -433,28 +448,33 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                         junk.decompose()
                     embed_text = embed_soup.get_text(separator=" ", strip=True)
                     if len(embed_text) >= MIN_BILL_TEXT_LENGTH:
-                        processed_id = store_txt(connection, id_val, embed_text, source_url, allow_duplicates=allow_duplicates)
+                        processing_time = round(time.time() - start_time, 3)
+                        processed_id = store_txt(connection, id_val, embed_text, source_url, allow_duplicates=allow_duplicates,
+                            domain=domain, num_tries=num_tries, num_failures=num_failures,
+                            warnings_text=f"Extracted text from embedded document: {embedded_url}",
+                            text_processing_method="embedded_doc", processing_time=processing_time)
                         return {"success": processed_id is not None, "processed_id": processed_id,
                                 "warning": f"Extracted text from embedded document: {embedded_url}",
                                 "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                                 "extraction_method": "embedded_doc"}
                     else:
+                        num_failures += 1
                         warning = f"Embedded doc at {embedded_url} had little text, falling back to normal parsing"
                 except Exception:
+                    num_failures += 1
                     warning = f"Could not fetch embedded doc at {embedded_url}, falling back to normal parsing"
 
         if "congress.gov" in source_url.lower():
+            num_tries += 1
             try:
                 congress_num, bill_type, bill_number = congress_extract(source_url.lower())
                 api_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type}/{bill_number}/text?format=json&api_key={congress_api_key}"
                 response = requests.get(api_url)
                 data = response.json()
-# priority of which bill version we scrape based on what is returned from congress API
                 VERSION_PRIORITY = ["Enrolled Bill", "Public Law", "Engrossed in House", "Engrossed in Senate",
                                     "Reported to House", "Reported to Senate",
                                     "Placed on Calendar Senate", "Placed on Calendar House",
                                     "Introduced in House", "Introduced in Senate"]
-# for now, test pdf but will test between pdf and html 
                 pdf_url = None
                 for preferred in VERSION_PRIORITY:
                     for version in data.get("textVersions", []):
@@ -467,15 +487,6 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                             break
                     if pdf_url:
                         break
-                # if is_pdf_url(pdf_url):
-                #     pdf_text = extract_text_from_pdf(pdf_url)
-                #     if pdf_text and len(pdf_text.strip()) > 0:
-                #         processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates)
-                #         return {"success": processed_id is not None, "processed_id": processed_id, "warning": None, 
-                #                 "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value, "extraction_method": "pdf"}
-                #     else:
-                #         warning = f"PDF/API extraction failed for {source_url}, falling back to selenium based text storing"
-             #--- HTM version, will test between the two---
                 htm_url = None
                 for preferred in VERSION_PRIORITY:
                     for version in data.get("textVersions", []):
@@ -502,17 +513,26 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                         soup = BeautifulSoup(htm_response.text, "html.parser")
                         htm_text = soup.get_text(separator="\n", strip=True)
                         if htm_text and len(htm_text.strip()) > 0:
-                            processed_id = store_txt(connection, id_val, htm_text, source_url, allow_duplicates=allow_duplicates)
+                            processing_time = round(time.time() - start_time, 3)
+                            processed_id = store_txt(connection, id_val, htm_text, source_url, allow_duplicates=allow_duplicates,
+                                domain=domain, num_tries=num_tries, num_failures=num_failures,
+                                text_processing_method="Congress.gov API (HTM)", processing_time=processing_time)
                             return {"success": processed_id is not None, "processed_id": processed_id, "warning": None,
                                     "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value, "extraction_method": "Congress.gov API (HTM)"}
                         else:
+                            num_failures += 1
                             warning = f"HTM/API extraction failed for {source_url}, falling back to selenium based text storing"
                     else:
+                        num_failures += 1
                         warning = f"HTM fetch returned {htm_response.status_code} for {htm_url}, falling back to selenium based text storing"
+                else:
+                    num_failures += 1
+                    warning = f"No HTM URL found via Congress API for {source_url}, falling back to selenium"
             except Exception as e:
+                num_failures += 1
                 warning = f"Congress API extraction failed for {source_url} ({e}), falling back to selenium"
         
-            # Use provided driver or create new one
+            num_tries += 1
             if driver is None:
                 driver = webdriver.Firefox()
                 owns_driver = True
@@ -532,12 +552,11 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             all_text = driver.find_element(By.TAG_NAME, "body").text
             start = "<DOC>"
             end_1 = "<All>"
-            end_2 = "<Attest:>"  # 2 options for finding end of TXT, as this is not uniformly marked
+            end_2 = "<Attest:>"
 
             if start in all_text:
                 start_index = all_text.find(start)
 
-                # Only slice if we actually find a valid end marker after the start
                 end_candidates = []
                 if end_1 in all_text:
                     end_idx = all_text.find(end_1, start_index)
@@ -552,12 +571,13 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     end_index = max(end_candidates)
                     body = all_text[start_index:end_index]
                 else:
-                    # If no reliable end marker is found, take everything from <DOC> onward
                     body = all_text[start_index:]
 
-                # Remove empty lines from congress.gov text
                 body = remove_empty_lines(body)
-                processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates)
+                processing_time = round(time.time() - start_time, 3)
+                processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates,
+                    domain=domain, num_tries=num_tries, num_failures=num_failures,
+                    warnings_text=warning, text_processing_method="congress_selenium", processing_time=processing_time)
                 return {
                     "success": processed_id is not None,
                     "processed_id": processed_id,
@@ -566,32 +586,39 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     "extraction_method": "congress_selenium",
                 }
 
-            # Remove empty lines from congress.gov text
             all_text = remove_empty_lines(all_text)
-            processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates)
+            processing_time = round(time.time() - start_time, 3)
+            processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates,
+                domain=domain, num_tries=num_tries, num_failures=num_failures,
+                warnings_text=warning, text_processing_method="congress_selenium", processing_time=processing_time)
             return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
                     "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                     "extraction_method": "congress_selenium"}
         if is_federal_reg_url(source_url):
+            num_tries += 1
             federal_reg_id = extract_federal_reg_id(source_url)
             if not federal_reg_id:
+                num_failures += 1
                 print(f"Could not extract document number from Federal Register URL: {source_url}")
                 return {"success": False, "processed_id": None, "warning": None, "error": "Could not extract Federal Register document ID",
                         "error_code": ErrorCode.UNKNOWN_ERROR.value, "stage": "text_extraction", "extraction_method": None}
             api_url = f"https://www.federalregister.gov/api/v1/documents/{federal_reg_id}.json?fields[]=raw_text_url"
             api_response = requests.get(api_url, timeout=15)
             if api_response.status_code != 200:
+                num_failures += 1
                 print(f"Federal Register API returned status {api_response.status_code}")
                 return {"success": False, "processed_id": None, "warning": None, "error": f"Federal Register API returned {api_response.status_code}",
                         "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "text_extraction", "extraction_method": None}
             data = api_response.json()
             raw_text_url = data.get("raw_text_url")
             if not raw_text_url:
+                num_failures += 1
                 print(f"Federal Register API did not return raw_text_url for {federal_reg_id}")
                 return {"success": False, "processed_id": None, "warning": None, "error": "No raw_text_url in API response",
                         "error_code": ErrorCode.UNKNOWN_ERROR.value, "stage": "text_extraction", "extraction_method": None}
             text_response = requests.get(raw_text_url, timeout=15)
             if text_response.status_code != 200:
+                num_failures += 1
                 return {"success": False, "processed_id": None, "warning": None,
                         "error": f"Failed to fetch raw text: HTTP {text_response.status_code}",
                         "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "text_extraction", "extraction_method": None}
@@ -601,39 +628,41 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 end_index = body_text.find("</html>")
                 if start_index != -1 and end_index != -1:
                     body_text = body_text[start_index:end_index]
-                processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates)
+                processing_time = round(time.time() - start_time, 3)
+                processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates,
+                    domain=domain, num_tries=num_tries, num_failures=num_failures,
+                    warnings_text=warning, text_processing_method="Federal Register API", processing_time=processing_time)
                 return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
                         "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                         "extraction_method": "Federal Register API"}
+            num_failures += 1
             return {"success": False, "processed_id": None, "warning": "Federal Register body had insufficient text",
                     "error_code": ErrorCode.INSUFFICIENT_TEXT.value, "extraction_method": "Federal Register API"}
 
         # For all other sites, first try BeautifulSoup, then check if content is dynamically loaded
         else:
-            # Create a copy of soup for detection (original soup will be modified)
+            num_tries += 1
             soup_copy = BeautifulSoup(raw_content, "lxml")
             
-            # Remove junk tags for text extraction
             for junk in soup.find_all(["script", "style", "header", "footer", "nav"]):
                 junk.decompose()
             cleaned_text = soup.get_text(separator=" ", strip=True)
             
-            # Check if content appears to be dynamically loaded
             needs_selenium = is_dynamically_loaded(raw_content, soup_copy)
             
-            # Also check if extracted text is too short (likely incomplete), both pass to selenimum 
             if len(cleaned_text) < MIN_BILL_TEXT_LENGTH:
                 needs_selenium = True
             
-            # Track extraction method
             extraction_method = "beautifulsoup"
             
-            # pass to general selenium extractor. 
             if needs_selenium:
+                num_failures += 1
+                num_tries += 1
                 selenium_text = fetch_with_selenium(source_url, driver=driver)
                 
                 block_code, block_error = check_text_for_block(selenium_text)
                 if block_code:
+                    num_failures += 1
                     return {"processed_id": None, "warning": None, "error": block_error, "error_code": block_code.value, 
                             "stage": "text_extraction", "extraction_method": "selenium"}
 
@@ -641,17 +670,20 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     cleaned_text = selenium_text
                     extraction_method = "selenium"
                 else:
+                    num_failures += 1
                     if not warning:
                         warning = "Selenium fallback did not improve text extraction results"
             
-            # Site-specific post-processing
             if "legislature.ca.gov" in source_url.lower():
                 bill_start = "SECTION 1."
                 bill_start_index = cleaned_text.find(bill_start)
                 if bill_start_index != -1:
                     cleaned_text = cleaned_text[bill_start_index:]
         
-            processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates)
+            processing_time = round(time.time() - start_time, 3)
+            processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates,
+                domain=domain, num_tries=num_tries, num_failures=num_failures,
+                warnings_text=warning, text_processing_method=extraction_method, processing_time=processing_time)
             return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
                     "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                     "extraction_method": extraction_method}
@@ -673,12 +705,13 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         except:
             pass
 
-def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False): # accepts duplicates flag to determine wheter to store text that already exists
+def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False,
+              domain=None, num_tries=0, num_failures=0, failure_type=None,
+              warnings_text=None, text_processing_method=None, processing_time=None):
     try: 
         cursor = connection.cursor()
         
-        # Check if this raw_id already has processed text (avoid duplicate processing)
-        if not allow_duplicates: # skips check if duplicates are allowed by user.
+        if not allow_duplicates:
             check_query = "SELECT id FROM leg_processed WHERE raw_doc_id = %s"
             cursor.execute(check_query, (raw_id,))
             existing = cursor.fetchone()
@@ -687,8 +720,13 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
                 print(f"Bill text already processed (processed_id: {existing[0]}). Skipping duplicate.")
                 return existing[0]
         
-        insert_query = "INSERT INTO leg_processed (raw_doc_id, clean_text) VALUES (%s, %s)"
-        cursor.execute(insert_query, (raw_id,clean_text))
+        insert_query = """INSERT INTO leg_processed 
+            (raw_doc_id, source_url, clean_text, domain, num_tries_text_processing, 
+             num_failures_text_processing, failure_type, warnings, text_processing_method, processing_time) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        cursor.execute(insert_query, (raw_id, source_url, clean_text, domain, num_tries,
+                                      num_failures, failure_type, warnings_text,
+                                      text_processing_method, processing_time))
         connection.commit()
         processed_doc_id = cursor.lastrowid
         

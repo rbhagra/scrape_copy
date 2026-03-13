@@ -74,7 +74,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
         query = """
             SELECT h.source_url, h.HTML
             FROM leg_processed p
-            JOIN leg_html h ON p.raw_doc_id = h.id
+            JOIN leg_html h ON p.raw_doc_id = h.search_id
             WHERE p.id = %s
         """
         cursor.execute(query, (processed_doc_id,))

@@ -45,7 +45,7 @@ def process_all_unprocessed_text():
         query = """
             SELECT p.id, p.clean_text, h.source_url
             FROM leg_processed p
-            JOIN leg_html h ON p.raw_doc_id = h.id
+            JOIN leg_html h ON p.raw_doc_id = h.search_id
             LEFT JOIN definitions d ON p.id = d.processed_doc_id
             WHERE d.processed_doc_id IS NULL
         """

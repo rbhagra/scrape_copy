@@ -4,10 +4,9 @@ from bs4 import BeautifulSoup
 
 
 def scrape():
-    url ="https://www.congress.gov/119/bills/hr4305/BILLS-119hr4305rh.xml"
+    url ="https://www.congress.gov/118/bills/hr112/BILLS-118hr112ih.htm"
     response = requests.get(url)
-    soup = BeautifulSoup (response.text, "lxml")
-    print(soup.prettify())
+    print(response.text)
 
 if __name__ == '__main__':
     scrape()

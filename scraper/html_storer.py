@@ -1,5 +1,6 @@
 import requests
 import re
+import time
 from urllib.parse import urlparse
 from mysql.connector import Error
 from dbconnection import create_connection
@@ -12,11 +13,73 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+congress_api_key = os.getenv("congress_api_key")
 
 
 def is_federal_reg_url(url):
 
     return "federalregister.gov/documents/" in url
+
+
+def is_congress_url(url):
+    return "congress.gov/bill/" in url.lower()
+
+
+VERSION_PRIORITY = [
+    "Enrolled Bill", "Public Law", "Engrossed in House", "Engrossed in Senate",
+    "Reported to House", "Reported to Senate",
+    "Placed on Calendar Senate", "Placed on Calendar House",
+    "Introduced in House", "Introduced in Senate",
+]
+
+
+def retrieve_congress_html(url):
+    """Fetch the HTM-formatted bill text via the Congress API."""
+    from detail_extract import congress_extract
+    try:
+        congress_num, bill_type, bill_number = congress_extract(url.lower())
+        api_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type}/{bill_number}/text?format=json&api_key={congress_api_key}"
+        response = requests.get(api_url, timeout=15)
+        if response.status_code != 200:
+            print(f"Congress API returned status {response.status_code}")
+            return None
+        data = response.json()
+
+        htm_url = None
+        for preferred in VERSION_PRIORITY:
+            for version in data.get("textVersions", []):
+                if version.get("type") == preferred:
+                    for fmt in version.get("formats", []):
+                        if fmt.get("type") == "Formatted Text":
+                            htm_url = fmt["url"]
+                            break
+                if htm_url:
+                    break
+            if htm_url:
+                break
+        if not htm_url:
+            for version in data.get("textVersions", []):
+                for fmt in version.get("formats", []):
+                    if fmt.get("type") == "Formatted Text":
+                        htm_url = fmt["url"]
+                        break
+                if htm_url:
+                    break
+
+        if not htm_url:
+            print(f"No Formatted Text URL found via Congress API for {url}")
+            return None
+
+        htm_response = requests.get(htm_url, timeout=15)
+        if htm_response.status_code == 200:
+            return htm_response.text
+
+        print(f"Failed to fetch HTM from Congress API: status {htm_response.status_code}")
+        return None
+
+    except Exception as e:
+        print(f"Error fetching from Congress API: {e}")
+        return None
 
 
 def extract_federal_reg_id(url):
@@ -86,7 +149,7 @@ def classify_block_error(html_content):
         return None, None
     lower = html_content.lower()
     
-    # Cloudflare managed challenge ("Just a moment..." JS-only challenge page)
+    
     if "_cf_chl_opt" in lower or "/cdn-cgi/challenge-platform/" in lower:
         return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Blocked by clouflare)"
     
@@ -118,12 +181,16 @@ def store_html(url, allow_duplicates=False, driver=None):
     """
     connection = None
     cursor = None
+    start_time = time.time()
     domain = urlparse(url).netloc.removeprefix("www.")
 
     from txt_storer import is_pdf_url
     timeout = 100 if is_pdf_url(url) else 15
     
-    if is_federal_reg_url(url):
+    if is_congress_url(url):
+        html_content = retrieve_congress_html(url)
+        max_retries = 1
+    elif is_federal_reg_url(url):
         html_content = retrieve_federal_reg_html(url)
         max_retries = 1
     else:
@@ -132,7 +199,9 @@ def store_html(url, allow_duplicates=False, driver=None):
     
     retry_count = 0
     while html_content is None and retry_count < max_retries:
-        if is_federal_reg_url(url):
+        if is_congress_url(url):
+            html_content = retrieve_congress_html(url)
+        elif is_federal_reg_url(url):
             html_content = retrieve_federal_reg_html(url)
         else:
             html_content = retrieve_html(url, timeout=timeout)
@@ -153,7 +222,7 @@ def store_html(url, allow_duplicates=False, driver=None):
         cursor = connection.cursor()
 
         if not allow_duplicates:
-            check_query = "SELECT id FROM leg_html WHERE source_url = %s"
+            check_query = "SELECT search_id FROM leg_html WHERE source_url = %s"
             cursor.execute(check_query, (url,))
             existing = cursor.fetchone()
 
@@ -189,13 +258,13 @@ def store_html(url, allow_duplicates=False, driver=None):
                 failure_type = error_code
                 stage = "text_extraction"
 
-        if failure_type:
-            try:
-                update_query = "UPDATE leg_html SET failure_type = %s WHERE id = %s"
-                cursor.execute(update_query, (failure_type, html_id))
-                connection.commit()
-            except Error:
-                pass
+        processing_time = round(time.time() - start_time, 3)
+        try:
+            update_query = "UPDATE leg_html SET processing_time = %s, warnings = %s, failure_type = %s WHERE search_id = %s"
+            cursor.execute(update_query, (processing_time, warning, failure_type, html_id))
+            connection.commit()
+        except Error:
+            pass
 
         return {"html_id": html_id, "warning": warning, "error": error, "error_code": error_code, "stage": stage, "extraction_method": extraction_method}
 

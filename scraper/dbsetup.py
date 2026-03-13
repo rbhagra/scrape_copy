@@ -52,13 +52,15 @@ def table_create():
         #1 table for unprocessed HTML
         cursor.execute("""
                     CREATE TABLE IF NOT EXISTS leg_html (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        source_url VARCHAR(2048) NOT NULL,
+                        search_id INT AUTO_INCREMENT PRIMARY KEY,
+                        source_url VARCHAR(500) NOT NULL,
                         HTML LONGTEXT,
                         domain VARCHAR(255),
                         num_tries INT DEFAULT 0,
                         num_failures INT DEFAULT 0,
                         failure_type VARCHAR(100),
+                        warnings VARCHAR(2480),
+                        processing_time DECIMAL(10,3),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB;
                 """)
@@ -68,9 +70,17 @@ def table_create():
                     CREATE TABLE IF NOT EXISTS leg_processed (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         raw_doc_id INT,
+                        source_url VARCHAR(500),
                         clean_text LONGTEXT,
                         processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (raw_doc_id) REFERENCES leg_html(id) ON DELETE CASCADE
+                        num_tries_text_processing INT DEFAULT 0,
+                        num_failures_text_processing INT DEFAULT 0,
+                        failure_type VARCHAR(1000),
+                        text_processing_method VARCHAR(1000),
+                        domain VARCHAR(200),
+                        warnings VARCHAR(2480),
+                        processing_time DECIMAL(10,3),
+                        FOREIGN KEY (raw_doc_id) REFERENCES leg_html(search_id) ON DELETE CASCADE
                     ) ENGINE=InnoDB;
                 """)
 
