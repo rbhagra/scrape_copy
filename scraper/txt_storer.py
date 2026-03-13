@@ -85,7 +85,7 @@ def pdf_quality_check(text):
     if not text or len(text.strip()) < MIN_BILL_TEXT_LENGTH:
         return False
     replacement_count = text.count(chr(0xFFFD))
-    if replacement_count > 20:
+    if replacement_count/len(text) > 0.3: # arbitrary treshold for unknown chars. Can be adjusted as needed.
         return False
     return True
 
@@ -473,6 +473,11 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         # Early block detection on raw HTML before any extraction attempt
         block_code, block_error = check_text_for_block(raw_content)
         if block_code:
+            processing_time = round(time.time() - start_time, 3)
+            store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                      domain=domain, num_tries=num_tries, num_failures=num_failures + 1,
+                      failure_type=block_code.value, text_processing_method=None,
+                      is_successful=0, processing_time=processing_time)
             return {"success": False, "processed_id": None, "warning": None, "error": block_error,
                     "error_code": block_code.value, "stage": "text_extraction", "extraction_method": None}
         
@@ -481,6 +486,16 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             num_tries += 1
             pdf_text = extract_text_from_pdf(source_url)
             if pdf_text and len(pdf_text.strip()) > 0:
+                if not pdf_quality_check(pdf_text):
+                    num_failures += 1
+                    processing_time = round(time.time() - start_time, 3)
+                    store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                        domain=domain, num_tries=num_tries, num_failures=num_failures,
+                        failure_type=ErrorCode.PDF_EXTRACTION_FAILED.value, text_processing_method="pdf",
+                        is_successful=0, processing_time=processing_time)
+                    return {"success": False, "processed_id": None, "warning": None,
+                            "error": "PDF could not be parsed correctly with any method",
+                            "error_code": ErrorCode.PDF_EXTRACTION_FAILED.value, "extraction_method": "pdf"}
                 processing_time = round(time.time() - start_time, 3)
                 processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates,
                     domain=domain, num_tries=num_tries, num_failures=num_failures,
@@ -500,6 +515,16 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 num_tries += 1
                 pdf_text = extract_text_from_pdf(embedded_url)
                 if pdf_text and len(pdf_text.strip()) > 0:
+                    if not pdf_quality_check(pdf_text):
+                        num_failures += 1
+                        processing_time = round(time.time() - start_time, 3)
+                        store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                            domain=domain, num_tries=num_tries, num_failures=num_failures,
+                            failure_type=ErrorCode.PDF_EXTRACTION_FAILED.value, text_processing_method="embedded_pdf",
+                            is_successful=0, processing_time=processing_time)
+                        return {"success": False, "processed_id": None, "warning": None,
+                                "error": "PDF could not be parsed correctly with any method",
+                                "error_code": ErrorCode.PDF_EXTRACTION_FAILED.value, "extraction_method": "embedded_pdf"}
                     processing_time = round(time.time() - start_time, 3)
                     processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates,
                         domain=domain, num_tries=num_tries, num_failures=num_failures,
@@ -674,6 +699,11 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             if not federal_reg_id:
                 num_failures += 1
                 print(f"Could not extract document number from Federal Register URL: {source_url}")
+                processing_time = round(time.time() - start_time, 3)
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                          domain=domain, num_tries=num_tries, num_failures=num_failures,
+                          failure_type=ErrorCode.UNKNOWN_ERROR.value, text_processing_method="Federal Register API",
+                          is_successful=0, processing_time=processing_time)
                 return {"success": False, "processed_id": None, "warning": None, "error": "Could not extract Federal Register document ID",
                         "error_code": ErrorCode.UNKNOWN_ERROR.value, "stage": "text_extraction", "extraction_method": None}
             api_url = f"https://www.federalregister.gov/api/v1/documents/{federal_reg_id}.json?fields[]=raw_text_url"
@@ -681,6 +711,11 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             if api_response.status_code != 200:
                 num_failures += 1
                 print(f"Federal Register API returned status {api_response.status_code}")
+                processing_time = round(time.time() - start_time, 3)
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                          domain=domain, num_tries=num_tries, num_failures=num_failures,
+                          failure_type=ErrorCode.NETWORK_REQUEST_FAILED.value, text_processing_method="Federal Register API",
+                          is_successful=0, processing_time=processing_time)
                 return {"success": False, "processed_id": None, "warning": None, "error": f"Federal Register API returned {api_response.status_code}",
                         "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "text_extraction", "extraction_method": None}
             data = api_response.json()
@@ -688,11 +723,21 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             if not raw_text_url:
                 num_failures += 1
                 print(f"Federal Register API did not return raw_text_url for {federal_reg_id}")
+                processing_time = round(time.time() - start_time, 3)
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                          domain=domain, num_tries=num_tries, num_failures=num_failures,
+                          failure_type=ErrorCode.UNKNOWN_ERROR.value, text_processing_method="Federal Register API",
+                          is_successful=0, processing_time=processing_time)
                 return {"success": False, "processed_id": None, "warning": None, "error": "No raw_text_url in API response",
                         "error_code": ErrorCode.UNKNOWN_ERROR.value, "stage": "text_extraction", "extraction_method": None}
             text_response = requests.get(raw_text_url, timeout=15)
             if text_response.status_code != 200:
                 num_failures += 1
+                processing_time = round(time.time() - start_time, 3)
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                          domain=domain, num_tries=num_tries, num_failures=num_failures,
+                          failure_type=ErrorCode.NETWORK_REQUEST_FAILED.value, text_processing_method="Federal Register API",
+                          is_successful=0, processing_time=processing_time)
                 return {"success": False, "processed_id": None, "warning": None,
                         "error": f"Failed to fetch raw text: HTTP {text_response.status_code}",
                         "error_code": ErrorCode.NETWORK_REQUEST_FAILED.value, "stage": "text_extraction", "extraction_method": None}
@@ -710,6 +755,11 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                         "error_code": None if processed_id else ErrorCode.DATABASE_ERROR.value,
                         "extraction_method": "Federal Register API"}
             num_failures += 1
+            processing_time = round(time.time() - start_time, 3)
+            store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                      domain=domain, num_tries=num_tries, num_failures=num_failures,
+                      failure_type=ErrorCode.INSUFFICIENT_TEXT.value, text_processing_method="Federal Register API",
+                      is_successful=0, processing_time=processing_time)
             return {"success": False, "processed_id": None, "warning": "Federal Register body had insufficient text",
                     "error_code": ErrorCode.INSUFFICIENT_TEXT.value, "extraction_method": "Federal Register API"}
 
@@ -737,6 +787,11 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 block_code, block_error = check_text_for_block(selenium_text)
                 if block_code:
                     num_failures += 1
+                    processing_time = round(time.time() - start_time, 3)
+                    store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                              domain=domain, num_tries=num_tries, num_failures=num_failures,
+                              failure_type=block_code.value, text_processing_method="selenium",
+                              is_successful=0, processing_time=processing_time)
                     return {"processed_id": None, "warning": None, "error": block_error, "error_code": block_code.value, 
                             "stage": "text_extraction", "extraction_method": "selenium"}
 
@@ -753,7 +808,18 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 bill_start_index = cleaned_text.find(bill_start)
                 if bill_start_index != -1:
                     cleaned_text = cleaned_text[bill_start_index:]
-        
+
+            if is_pdf_url(source_url) and not pdf_quality_check(cleaned_text): #checks pdf qaulity even if falls back to selenium/ BS parsing
+                num_failures += 1
+                processing_time = round(time.time() - start_time, 3)
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                    domain=domain, num_tries=num_tries, num_failures=num_failures,
+                    failure_type=ErrorCode.PDF_EXTRACTION_FAILED.value, text_processing_method=extraction_method,
+                    is_successful=0, processing_time=processing_time)
+                return {"success": False, "processed_id": None, "warning": None,
+                        "error": "PDF could not be parsed correctly with any method",
+                        "error_code": ErrorCode.PDF_EXTRACTION_FAILED.value, "extraction_method": extraction_method}
+
             processing_time = round(time.time() - start_time, 3)
             processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates,
                 domain=domain, num_tries=num_tries, num_failures=num_failures,
@@ -781,7 +847,8 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
 
 def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False,
               domain=None, num_tries=0, num_failures=0, failure_type=None,
-              warnings_text=None, text_processing_method=None, processing_time=None):
+              warnings_text=None, text_processing_method=None, processing_time=None,
+              is_successful=1):
     try: 
         cursor = connection.cursor()
         
@@ -796,11 +863,12 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
         
         insert_query = """INSERT INTO leg_processed 
             (raw_doc_id, source_url, clean_text, domain, num_tries_text_processing, 
-             num_failures_text_processing, failure_type, warnings, text_processing_method, processing_time) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+             num_failures_text_processing, failure_type, warnings, text_processing_method, 
+             is_successful, processing_time) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         cursor.execute(insert_query, (raw_id, source_url, clean_text, domain, num_tries,
                                       num_failures, failure_type, warnings_text,
-                                      text_processing_method, processing_time))
+                                      text_processing_method, is_successful, processing_time))
         connection.commit()
         processed_doc_id = cursor.lastrowid
         
@@ -821,3 +889,4 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
                 cursor.close()
         except:
             pass
+        

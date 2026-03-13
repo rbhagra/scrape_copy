@@ -133,7 +133,7 @@ def export_all_tables(connection, results_dir, html_ids=None):
         connection, 
         "leg_html", 
         html_path,
-        columns=["search_id", "source_url", "HTML", "domain", "num_tries", "num_failures", "failure_type", "warnings", "processing_time", "created_at"],
+        columns=["search_id", "source_url", "HTML", "domain", "num_tries", "num_failures", "failure_type", "warnings", "is_successful", "processing_time", "created_at"],
         where_clause=html_where if html_ids else None,
         params=params if html_ids else None
     )
@@ -147,7 +147,7 @@ def export_all_tables(connection, results_dir, html_ids=None):
         processed_path,
         columns=["id", "raw_doc_id", "source_url", "clean_text", "processed_at",
                  "num_tries_text_processing", "num_failures_text_processing", "failure_type",
-                 "text_processing_method", "domain", "warnings", "processing_time"],
+                 "text_processing_method", "domain", "warnings", "is_successful", "processing_time"],
         where_clause=processed_where if html_ids else None,
         params=params if html_ids else None
     )

@@ -60,6 +60,7 @@ def table_create():
                         num_failures INT DEFAULT 0,
                         failure_type VARCHAR(100),
                         warnings VARCHAR(2480),
+                        is_successful TINYINT DEFAULT 0,
                         processing_time DECIMAL(10,3),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB;
@@ -79,6 +80,7 @@ def table_create():
                         text_processing_method VARCHAR(1000),
                         domain VARCHAR(200),
                         warnings VARCHAR(2480),
+                        is_successful TINYINT DEFAULT 0,
                         processing_time DECIMAL(10,3),
                         FOREIGN KEY (raw_doc_id) REFERENCES leg_html(search_id) ON DELETE CASCADE
                     ) ENGINE=InnoDB;

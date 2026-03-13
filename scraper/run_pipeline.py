@@ -263,7 +263,7 @@ def run_pipeline(config, results_dir):
     pipeline_duration = time.time() - pipeline_start_time
     
     # collect html_ids from successful runs for csv export filtering
-    html_ids = [r["html_id"] for r in results if r["success"] and r["html_id"] is not None]
+    html_ids = [r["html_id"] for r in results if r["html_id"] is not None]
 
     # compute per-domain success metrics
     domain_metrics = compute_domain_metrics(results)
