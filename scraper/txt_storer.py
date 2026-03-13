@@ -21,12 +21,24 @@ from detail_extract import congress_extract
 warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
+import json
+import zipfile
+from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
+from adobe.pdfservices.operation.pdf_services_media_type import PDFServicesMediaType
+from adobe.pdfservices.operation.pdf_services import PDFServices
+from adobe.pdfservices.operation.pdfjobs.jobs.extract_pdf_job import ExtractPDFJob
+from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_element_type import ExtractElementType
+from adobe.pdfservices.operation.pdfjobs.params.extract_pdf.extract_pdf_params import ExtractPDFParams
+from adobe.pdfservices.operation.pdfjobs.result.extract_pdf_result import ExtractPDFResult
+
 load_dotenv()
 pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
 congress_api_key = os.getenv("congress_api_key")
+adobe_client_id = os.getenv("adobe_client_id")
+adobe_client_secret = os.getenv("adobe_client_secret")
 
 # Minimum character threshold for valid bill text
 MIN_BILL_TEXT_LENGTH = 500
@@ -68,29 +80,91 @@ def remove_empty_lines(text):
     return '\n'.join(cleaned_lines)
 
 
-def extract_text_from_pdf(url):
-    """
-    Download PDF from URL and extract clean text using pymupdf4llm.
-    
-    Args:
-        url: URL to the PDF file (must end with .pdf)
-    
-    Returns:
-        str: Clean text extracted from the PDF
-    """
+def pdf_quality_check(text):
+   # determines if my mupdf extraction works properly via legnth and unknown chars, if not, use adobe
+    if not text or len(text.strip()) < MIN_BILL_TEXT_LENGTH:
+        return False
+    replacement_count = text.count(chr(0xFFFD))
+    if replacement_count > 20:
+        return False
+    return True
+
+
+def extract_text_from_pdf_adobe(pdf_bytes):
+    #extracts using adobe pdf extract api -- limited to 500 docs per month
+    if not adobe_client_id or not adobe_client_secret:
+        print("Adobe PDF credentials not configured, skipping Adobe fallback")
+        return None
     try:
-        response = requests.get(url, timeout=30)
+        credentials = ServicePrincipalCredentials(
+            client_id=adobe_client_id,
+            client_secret=adobe_client_secret
+        )
+        pdf_services = PDFServices(credentials=credentials)
+
+        input_asset = pdf_services.upload(
+            input_stream=pdf_bytes,
+            mime_type=PDFServicesMediaType.PDF
+        )
+
+        extract_params = ExtractPDFParams(
+            elements_to_extract=[ExtractElementType.TEXT]
+        )
+
+        extract_job = ExtractPDFJob(input_asset=input_asset, extract_pdf_params=extract_params)
+        location = pdf_services.submit(extract_job)
+        pdf_result = pdf_services.get_job_result(location, ExtractPDFResult)
+
+        result_asset = pdf_result.get_result().get_resource()
+        stream_asset = pdf_services.get_content(result_asset)
+        zip_bytes = stream_asset.get_input_stream()
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            with zf.open("structuredData.json") as f:
+                structured_data = json.loads(f.read())
+
+        paragraphs = []
+        for element in structured_data.get("elements", []):
+            text = element.get("Text")
+            if text:
+                paragraphs.append(text)
+
+        full_text = "\n".join(paragraphs)
+        return remove_empty_lines(full_text) if full_text.strip() else None
+
+    except Exception as e:
+        print(f"Adobe PDF Extract API error: {e}")
+        return None
+
+
+def extract_text_from_pdf(url):
+  
+  #first tries pymupdf, then falls back to adobe if poor quality or timeout
+    pdf_raw = None
+    try:
+        response = requests.get(url, timeout=60)
         response.raise_for_status()
-        pdf_bytes = io.BytesIO(response.content)
+        pdf_raw = response.content
+    except requests.RequestException as e:
+        print(f"PDF download failed for {url}: {e}")
+        return None
+
+    try:
+        pdf_bytes = io.BytesIO(pdf_raw)
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         md_text = pymupdf4llm.to_markdown(doc)
-        # Remove empty lines from extracted text
         cleaned_text = remove_empty_lines(md_text)
-        return cleaned_text
-    except requests.RequestException as e:
-        return None
+        if pdf_quality_check(cleaned_text):
+            return cleaned_text
+        print(f"PyMuPDF produced poor quality text for {url}, trying Adobe fallback")
     except Exception as e:
-        return None
+        print(f"PyMuPDF extraction failed for {url}: {e}, trying Adobe fallback")
+
+    adobe_text = extract_text_from_pdf_adobe(pdf_raw)
+    if adobe_text and len(adobe_text.strip()) > 0:
+        return adobe_text
+
+    return None
 
 def _looks_like_document_url(url):
     """Check if a URL looks like it points to a document (PDF, DOCX, etc.)."""
