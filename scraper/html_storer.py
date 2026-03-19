@@ -169,7 +169,7 @@ def classify_block_error(html_content):
     return None, None
 
 
-def store_html(url, allow_duplicates=False, driver=None):
+def store_html(url, allow_duplicates=False, driver=None, search_link_id=None):
     """
     Returns dict: {"html_id": int or None, "warning": str or None, "error": str or None, "stage": str}
 
@@ -177,6 +177,7 @@ def store_html(url, allow_duplicates=False, driver=None):
         url: URL to fetch and store
         allow_duplicates: Whether to allow duplicate URLs
         driver: Optional existing WebDriver instance to reuse
+        search_link_id: Optional search_links.id that discovered this URL
     """
     connection = None
     cursor = None
@@ -258,7 +259,7 @@ def store_html(url, allow_duplicates=False, driver=None):
         html_id = cursor.lastrowid
 
         from txt_storer import retreive_txt
-        txt_result = retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id, driver=driver)
+        txt_result = retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id, driver=driver, search_link_id=search_link_id)
 
         warning = None
         error = None

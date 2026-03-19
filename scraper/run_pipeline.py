@@ -131,6 +131,7 @@ def load_config(config_path):
     print(f"  Successful searches: {discovery['successful_searches']}")
     print(f"  Failed searches:     {discovery['failed_searches']}")
     print(f"  URLs discovered:     {discovery['total_urls_discovered']}")
+    print(f"  URL acceptance rate: {discovery['url_acceptance_rate']}%")
     print(f"  Total time:          {discovery['timing']['total_duration_seconds']}s")
     if discovery["errors"]:
         print(f"  Errors:")
@@ -148,7 +149,7 @@ def load_config(config_path):
     return config
 
 
-def process_url(url, allow_duplicates, driver=None):
+def process_url(url, allow_duplicates, driver=None, search_link_id=None):
     """
     Process a single URL through the pipeline.
     
@@ -156,12 +157,13 @@ def process_url(url, allow_duplicates, driver=None):
         url: URL to process
         allow_duplicates: Whether to allow duplicate processing
         driver: Optional existing WebDriver instance to reuse
+        search_link_id: Optional search_links.id that discovered this URL
     
     Returns:
         dict: Result dictionary with success status, details, and warnings
     """
     try:
-        result = store_html(url, allow_duplicates=allow_duplicates, driver=driver)
+        result = store_html(url, allow_duplicates=allow_duplicates, driver=driver, search_link_id=search_link_id)
         
         # Check for errors first (e.g. Cloudflare block, embedded-doc failure)
         if result.get("error"):
@@ -224,6 +226,7 @@ def run_pipeline(config, results_dir):
     """
     URLs = config["URLs"]
     allow_duplicates = config["settings"]["allow_duplicates"]
+    url_to_search_link_id = config.get("_search_discovery", {}).get("url_to_search_link_id", {})
     
     results = []
     successful_URLs = 0
@@ -256,8 +259,8 @@ def run_pipeline(config, results_dir):
             # stuck URL can never block the rest of the pipeline.
             result_holder = [None]
 
-            def _run(u=url, dup=allow_duplicates, d=driver):
-                result_holder[0] = process_url(u, dup, driver=d)
+            def _run(u=url, dup=allow_duplicates, d=driver, slid=url_to_search_link_id.get(url)):
+                result_holder[0] = process_url(u, dup, driver=d, search_link_id=slid)
 
             thread = threading.Thread(target=_run, daemon=True)
             thread.start()
@@ -456,7 +459,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "complete": pipeline_summary["successful_URLs"]
     }
 
-    # Build search discovery section for status.json
+    # search discovery section for status file 
     discovery = pipeline_summary.get("search_discovery")
     search_discovery_section = None
     if discovery:
@@ -485,7 +488,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "total_URLs": pipeline_summary["total_URLs"],
         "successful_URLs": pipeline_summary["successful_URLs"],
         "failed_URLs": pipeline_summary["failed_URLs"],
-        "timing": pipeline_summary.get("timing", {}),
+        "processing_timing": pipeline_summary.get("timing", {}),
         "extraction_method_distribution": extraction_method_counts,
         "stage_breakdown": stage_breakdown,
         "error_code_distribution": error_code_counts,

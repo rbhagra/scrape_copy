@@ -424,7 +424,7 @@ def fetch_with_selenium(source_url, driver=None): #general selenium function for
         if owns_driver and driver:
             driver.quit()
 
-def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
+def retreive_txt(allow_duplicates=False, html_id=None, driver=None, search_link_id=None):
     """
     Returns dict with: {"success": bool, "processed_id": int or None, "warning": str or None}
     
@@ -432,6 +432,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         allow_duplicates: Whether to allow duplicate processing
         html_id: Specific HTML record ID to process
         driver: Optional existing WebDriver instance to reuse (avoids opening new browser windows)
+        search_link_id: Optional search_links.id that discovered this URL
     """
     connection = None
     warning = None
@@ -474,7 +475,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
         block_code, block_error = check_text_for_block(raw_content)
         if block_code:
             processing_time = round(time.time() - start_time, 3)
-            store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+            store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                       domain=domain, num_tries=num_tries, num_failures=num_failures + 1,
                       failure_type=block_code.value, text_processing_method=None,
                       is_successful=0, processing_time=processing_time)
@@ -489,7 +490,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 if not pdf_quality_check(pdf_text):
                     num_failures += 1
                     processing_time = round(time.time() - start_time, 3)
-                    store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                    store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                         domain=domain, num_tries=num_tries, num_failures=num_failures,
                         failure_type=ErrorCode.PDF_EXTRACTION_FAILED.value, text_processing_method="pdf",
                         is_successful=0, processing_time=processing_time)
@@ -497,7 +498,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                             "error": "PDF could not be parsed correctly with any method",
                             "error_code": ErrorCode.PDF_EXTRACTION_FAILED.value, "extraction_method": "pdf"}
                 processing_time = round(time.time() - start_time, 3)
-                processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates,
+                processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                     domain=domain, num_tries=num_tries, num_failures=num_failures,
                     text_processing_method="pdf", processing_time=processing_time)
                 return {"success": processed_id is not None, "processed_id": processed_id, "warning": None, 
@@ -518,7 +519,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     if not pdf_quality_check(pdf_text):
                         num_failures += 1
                         processing_time = round(time.time() - start_time, 3)
-                        store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                        store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                             domain=domain, num_tries=num_tries, num_failures=num_failures,
                             failure_type=ErrorCode.PDF_EXTRACTION_FAILED.value, text_processing_method="embedded_pdf",
                             is_successful=0, processing_time=processing_time)
@@ -526,7 +527,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                                 "error": "PDF could not be parsed correctly with any method",
                                 "error_code": ErrorCode.PDF_EXTRACTION_FAILED.value, "extraction_method": "embedded_pdf"}
                     processing_time = round(time.time() - start_time, 3)
-                    processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates,
+                    processed_id = store_txt(connection, id_val, pdf_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                         domain=domain, num_tries=num_tries, num_failures=num_failures,
                         warnings_text=f"Extracted text from embedded PDF: {embedded_url}",
                         text_processing_method="embedded_pdf", processing_time=processing_time)
@@ -548,7 +549,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                     embed_text = embed_soup.get_text(separator=" ", strip=True)
                     if len(embed_text) >= MIN_BILL_TEXT_LENGTH:
                         processing_time = round(time.time() - start_time, 3)
-                        processed_id = store_txt(connection, id_val, embed_text, source_url, allow_duplicates=allow_duplicates,
+                        processed_id = store_txt(connection, id_val, embed_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                             domain=domain, num_tries=num_tries, num_failures=num_failures,
                             warnings_text=f"Extracted text from embedded document: {embedded_url}",
                             text_processing_method="embedded_doc", processing_time=processing_time)
@@ -613,7 +614,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                         htm_text = soup.get_text(separator="\n", strip=True)
                         if htm_text and len(htm_text.strip()) > 0:
                             processing_time = round(time.time() - start_time, 3)
-                            processed_id = store_txt(connection, id_val, htm_text, source_url, allow_duplicates=allow_duplicates,
+                            processed_id = store_txt(connection, id_val, htm_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                                 domain=domain, num_tries=num_tries, num_failures=num_failures,
                                 text_processing_method="Congress.gov API (HTM)", processing_time=processing_time)
                             return {"success": processed_id is not None, "processed_id": processed_id, "warning": None,
@@ -674,7 +675,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
 
                 body = remove_empty_lines(body)
                 processing_time = round(time.time() - start_time, 3)
-                processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates,
+                processed_id = store_txt(connection, id_val, body, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                     domain=domain, num_tries=num_tries, num_failures=num_failures,
                     warnings_text=warning, text_processing_method="congress_selenium", processing_time=processing_time)
                 return {
@@ -687,7 +688,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
 
             all_text = remove_empty_lines(all_text)
             processing_time = round(time.time() - start_time, 3)
-            processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates,
+            processed_id = store_txt(connection, id_val, all_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                 domain=domain, num_tries=num_tries, num_failures=num_failures,
                 warnings_text=warning, text_processing_method="congress_selenium", processing_time=processing_time)
             return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
@@ -700,7 +701,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 num_failures += 1
                 print(f"Could not extract document number from Federal Register URL: {source_url}")
                 processing_time = round(time.time() - start_time, 3)
-                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                           domain=domain, num_tries=num_tries, num_failures=num_failures,
                           failure_type=ErrorCode.UNKNOWN_ERROR.value, text_processing_method="Federal Register API",
                           is_successful=0, processing_time=processing_time)
@@ -712,7 +713,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 num_failures += 1
                 print(f"Federal Register API returned status {api_response.status_code}")
                 processing_time = round(time.time() - start_time, 3)
-                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                           domain=domain, num_tries=num_tries, num_failures=num_failures,
                           failure_type=ErrorCode.NETWORK_REQUEST_FAILED.value, text_processing_method="Federal Register API",
                           is_successful=0, processing_time=processing_time)
@@ -724,7 +725,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 num_failures += 1
                 print(f"Federal Register API did not return raw_text_url for {federal_reg_id}")
                 processing_time = round(time.time() - start_time, 3)
-                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                           domain=domain, num_tries=num_tries, num_failures=num_failures,
                           failure_type=ErrorCode.UNKNOWN_ERROR.value, text_processing_method="Federal Register API",
                           is_successful=0, processing_time=processing_time)
@@ -734,7 +735,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             if text_response.status_code != 200:
                 num_failures += 1
                 processing_time = round(time.time() - start_time, 3)
-                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                           domain=domain, num_tries=num_tries, num_failures=num_failures,
                           failure_type=ErrorCode.NETWORK_REQUEST_FAILED.value, text_processing_method="Federal Register API",
                           is_successful=0, processing_time=processing_time)
@@ -748,7 +749,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 if start_index != -1 and end_index != -1:
                     body_text = body_text[start_index:end_index]
                 processing_time = round(time.time() - start_time, 3)
-                processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates,
+                processed_id = store_txt(connection, id_val, body_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                     domain=domain, num_tries=num_tries, num_failures=num_failures,
                     warnings_text=warning, text_processing_method="Federal Register API", processing_time=processing_time)
                 return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
@@ -756,7 +757,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                         "extraction_method": "Federal Register API"}
             num_failures += 1
             processing_time = round(time.time() - start_time, 3)
-            store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+            store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                       domain=domain, num_tries=num_tries, num_failures=num_failures,
                       failure_type=ErrorCode.INSUFFICIENT_TEXT.value, text_processing_method="Federal Register API",
                       is_successful=0, processing_time=processing_time)
@@ -788,7 +789,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                 if block_code:
                     num_failures += 1
                     processing_time = round(time.time() - start_time, 3)
-                    store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                    store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                               domain=domain, num_tries=num_tries, num_failures=num_failures,
                               failure_type=block_code.value, text_processing_method="selenium",
                               is_successful=0, processing_time=processing_time)
@@ -812,7 +813,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
             if is_pdf_url(source_url) and not pdf_quality_check(cleaned_text): #checks pdf qaulity even if falls back to selenium/ BS parsing
                 num_failures += 1
                 processing_time = round(time.time() - start_time, 3)
-                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates,
+                store_txt(connection, id_val, None, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                     domain=domain, num_tries=num_tries, num_failures=num_failures,
                     failure_type=ErrorCode.PDF_EXTRACTION_FAILED.value, text_processing_method=extraction_method,
                     is_successful=0, processing_time=processing_time)
@@ -821,7 +822,7 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
                         "error_code": ErrorCode.PDF_EXTRACTION_FAILED.value, "extraction_method": extraction_method}
 
             processing_time = round(time.time() - start_time, 3)
-            processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates,
+            processed_id = store_txt(connection, id_val, cleaned_text, source_url, allow_duplicates=allow_duplicates, search_link_id=search_link_id,
                 domain=domain, num_tries=num_tries, num_failures=num_failures,
                 warnings_text=warning, text_processing_method=extraction_method, processing_time=processing_time)
             return {"success": processed_id is not None, "processed_id": processed_id, "warning": warning,
@@ -848,9 +849,21 @@ def retreive_txt(allow_duplicates=False, html_id=None, driver=None):
 def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False,
               domain=None, num_tries=0, num_failures=0, failure_type=None,
               warnings_text=None, text_processing_method=None, processing_time=None,
-              is_successful=1):
+              is_successful=1, search_link_id=None):
     try: 
         cursor = connection.cursor()
+
+        # If we have the search_link_id, fetch the originating search query text.
+        # This lets us later join leg_processed -> search_links and export search_term.
+        search_term = None
+        if search_link_id is not None:
+            cursor.execute(
+                "SELECT keyword_search FROM search_links WHERE id = %s",
+                (search_link_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                search_term = row[0]
         
         if not allow_duplicates:
             check_query = "SELECT id FROM leg_processed WHERE raw_doc_id = %s"
@@ -864,11 +877,26 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
         insert_query = """INSERT INTO leg_processed 
             (raw_doc_id, source_url, clean_text, domain, num_tries_text_processing, 
              num_failures_text_processing, failure_type, warnings, text_processing_method, 
-             is_successful, processing_time) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-        cursor.execute(insert_query, (raw_id, source_url, clean_text, domain, num_tries,
-                                      num_failures, failure_type, warnings_text,
-                                      text_processing_method, is_successful, processing_time))
+             is_successful, processing_time, search_link_id, search_term) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        cursor.execute(
+            insert_query,
+            (
+                raw_id,
+                source_url,
+                clean_text,
+                domain,
+                num_tries,
+                num_failures,
+                failure_type,
+                warnings_text,
+                text_processing_method,
+                is_successful,
+                processing_time,
+                search_link_id,
+                search_term,
+            ),
+        )
         connection.commit()
         processed_doc_id = cursor.lastrowid
         

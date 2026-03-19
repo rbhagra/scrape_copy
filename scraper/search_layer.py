@@ -127,7 +127,11 @@ def _search_serp_api(query, max_results, max_retries=2):
 def _record_link(cursor, search_method, keyword_search, other_filters, link,
                  processing_time=None, num_api_tries=0, num_api_failures=0,
                  failure_type=None, is_successful=1):
-    """Insert a single discovered link into search_links with tracking columns."""
+    """Insert a single discovered link into search_links with tracking columns.
+
+    Returns:
+        int: The auto-generated id of the inserted row.
+    """
     insert_query = """INSERT INTO search_links
         (search_method, keyword_search, other_filters, link,
          processing_time, num_api_tries, num_api_failures, failure_type, is_successful)
@@ -136,6 +140,7 @@ def _record_link(cursor, search_method, keyword_search, other_filters, link,
         search_method, keyword_search, other_filters, link,
         processing_time, num_api_tries, num_api_failures, failure_type, is_successful,
     ))
+    return cursor.lastrowid
 
 
 def discover_urls(searches, connection):
@@ -150,20 +155,25 @@ def discover_urls(searches, connection):
 
     Returns:
         dict with keys:
-            urls            - deduplicated list of accepted URLs
-            search_results  - per-entry metrics list
-            timing          - aggregate timing stats
+            urls                   - deduplicated list of accepted URLs
+            url_to_search_link_id  - dict mapping each URL to its search_links.id
+            search_results         - per-entry metrics list
+            timing                 - aggregate timing stats
             total_searches / successful_searches / failed_searches
             total_urls_discovered
-            errors          - list of error strings
-            warnings        - list of warning strings
+            url_acceptance_rate    - accepted / (accepted + rejected) across all SERP links
+            errors                 - list of error strings
+            warnings               - list of warning strings
     """
     overall_start = time.time()
     all_urls = set()
+    url_to_search_link_id = {}
     search_results = []
     all_errors = []
     all_warnings = []
     search_durations = []
+    total_accepted_links = 0
+    total_rejected_links = 0
 
     cursor = None
     try:
@@ -236,13 +246,15 @@ def discover_urls(searches, connection):
             rejected = 0
             for link in raw_links:
                 if _passes_filters(link, url_filters):
-                    _record_link(
+                    link_id = _record_link(
                         cursor, "SERPAPI", query, filters_str, link,
                         processing_time=api_duration,
                         num_api_tries=serp["num_tries"],
                         num_api_failures=serp["num_failures"],
                         is_successful=1,
                     )
+                    if link not in all_urls:
+                        url_to_search_link_id[link] = link_id
                     all_urls.add(link)
                     accepted += 1
                 else:
@@ -258,6 +270,9 @@ def discover_urls(searches, connection):
 
             entry_duration = round(time.time() - entry_start, 3)
             search_durations.append(entry_duration)
+
+            total_accepted_links += accepted
+            total_rejected_links += rejected
 
             search_results.append({
                 "query": query,
@@ -293,6 +308,9 @@ def discover_urls(searches, connection):
     successful_searches = sum(1 for r in search_results if r["error"] is None)
     failed_searches = len(search_results) - successful_searches
 
+    denom = total_accepted_links + total_rejected_links
+    url_acceptance_rate = (total_accepted_links / denom) if denom > 0 else 0.0
+
     timing = {
         "total_duration_seconds": overall_duration,
         "avg_per_search_seconds": round(sum(search_durations) / len(search_durations), 3) if search_durations else 0,
@@ -306,12 +324,14 @@ def discover_urls(searches, connection):
 
     return {
         "urls": url_list,
+        "url_to_search_link_id": url_to_search_link_id,
         "search_results": search_results,
         "timing": timing,
         "total_searches": len(search_results),
         "successful_searches": successful_searches,
         "failed_searches": failed_searches,
         "total_urls_discovered": len(url_list),
+        "url_acceptance_rate": url_acceptance_rate,
         "errors": all_errors,
         "warnings": all_warnings,
     }

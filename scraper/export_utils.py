@@ -147,7 +147,8 @@ def export_all_tables(connection, results_dir, html_ids=None):
         processed_path,
         columns=["id", "raw_doc_id", "source_url", "clean_text", "processed_at",
                  "num_tries_text_processing", "num_failures_text_processing", "failure_type",
-                 "text_processing_method", "domain", "warnings", "is_successful", "processing_time"],
+                 "text_processing_method", "domain", "warnings", "is_successful", "processing_time",
+                 "search_link_id", "search_term"],
         where_clause=processed_where if html_ids else None,
         params=params if html_ids else None
     )
