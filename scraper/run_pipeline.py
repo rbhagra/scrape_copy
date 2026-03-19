@@ -48,7 +48,7 @@ def add_timestamp_results_directory():
 def parse_args():
      # parse command line args
     parser = argparse.ArgumentParser(
-        description="Runs the legislative scraping pipeline with config file containing URLs and basic settings and a results diirectory"
+        description="Runs the pipeline with search terms (SERP API)"
     )
     # provides path to json config file
     parser.add_argument(
@@ -63,6 +63,9 @@ def parse_args():
 def load_config(config_path):
     """
     Load and validate the configuration file.
+    Search-only mode:
+      - user provides `searches` in the config
+      - we resolve searches into `URLs` internally via SERP API
     
     Args:
         config_path: Path to the JSON config file
@@ -82,23 +85,66 @@ def load_config(config_path):
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in config file: {e}")
     
-    # Validate required fields
-    if "URLs" not in config:
-        raise ValueError("Config must contain 'URLs' field")
-    
-    if not isinstance(config["URLs"], list):
-        raise ValueError("'URLs' must be a list")
-    
-    if len(config["URLs"]) == 0:
-        raise ValueError("URLs list cannot be empty")
-    
     # Set defaults for optional fields
     if "settings" not in config:
         config["settings"] = {}
-    # defaults to true for duplicates
     if "allow_duplicates" not in config["settings"]:
         config["settings"]["allow_duplicates"] = True
     
+    # Enforce search-only: reject direct URL configs
+    if "URLs" in config:
+        raise ValueError("Search-only mode: config must not include 'URLs'. Provide 'searches' instead.")
+
+    if "searches" not in config:
+        raise ValueError("Config must contain 'searches' field")
+
+    if not isinstance(config["searches"], list) or len(config["searches"]) == 0:
+        raise ValueError("'searches' must be a non-empty list")
+
+    for i, entry in enumerate(config["searches"]):
+        if not isinstance(entry, dict):
+            raise ValueError(f"Search entry {i} must be an object")
+        if "term" not in entry or "domain" not in entry:
+            raise ValueError(f"Search entry {i} must have 'term' and 'domain' keys")
+
+    from search_layer import discover_urls
+    connection = create_connection(host, user, pw, database)
+    if connection is None:
+        raise RuntimeError("Failed to connect to database for search discovery")
+    try:
+        print(f"\n{'#'*70}")
+        print(f"  SEARCH DISCOVERY STAGE")
+        print(f"{'#'*70}\n")
+        discovery = discover_urls(config["searches"], connection)
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
+
+    config["URLs"] = discovery["urls"]
+    config["_search_discovery"] = discovery
+
+    # Print search discovery summary
+    print(f"{'='*70}")
+    print(f"  SEARCH DISCOVERY SUMMARY")
+    print(f"{'='*70}")
+    print(f"  Total searches:      {discovery['total_searches']}")
+    print(f"  Successful searches: {discovery['successful_searches']}")
+    print(f"  Failed searches:     {discovery['failed_searches']}")
+    print(f"  URLs discovered:     {discovery['total_urls_discovered']}")
+    print(f"  Total time:          {discovery['timing']['total_duration_seconds']}s")
+    if discovery["errors"]:
+        print(f"  Errors:")
+        for err in discovery["errors"]:
+            print(f"    - {err}")
+    if discovery["warnings"]:
+        print(f"  Warnings:")
+        for warn in discovery["warnings"]:
+            print(f"    - {warn}")
+    print(f"{'='*70}\n")
+
+    if not config["URLs"]:
+        raise ValueError("Search returned no URLs after filtering")
+
     return config
 
 
@@ -286,7 +332,8 @@ def run_pipeline(config, results_dir):
         "warnings": warnings,
         "html_ids": html_ids,
         "domain_metrics": domain_metrics,
-        "timing": timing_stats
+        "timing": timing_stats,
+        "search_discovery": config.get("_search_discovery"),
     }
     # Per-stage counts
     total = len(URLs)
@@ -370,7 +417,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
     error_code_counts = {}
     for r in pipeline_summary.get("results", []):
         code = r.get("error_code")
-        if code is not None:  # Only count actual errors
+        if code is not None:
             error_code_counts[code] = error_code_counts.get(code, 0) + 1
     
     # Compute extraction method distribution (only for successful extractions)
@@ -384,16 +431,14 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
     results = pipeline_summary.get("results", [])
     total_urls = len(results)
     
-    # Count failures at each stage
     html_fetch_failures = len([r for r in results if not r["success"] and r.get("stage") == "html_fetch"])
     text_extraction_failures = len([r for r in results if not r["success"] and r.get("stage") == "text_extraction"])
     timeout_failures = len([r for r in results if not r["success"] and r.get("stage") == "timeout"])
     
-    # Calculate stage breakdown
     html_fetch_attempted = total_urls
     html_fetch_succeeded = total_urls - html_fetch_failures - timeout_failures
     
-    text_extraction_attempted = html_fetch_succeeded  # Only URLs that passed html_fetch
+    text_extraction_attempted = html_fetch_succeeded
     text_extraction_succeeded = text_extraction_attempted - text_extraction_failures
     
     stage_breakdown = {
@@ -410,10 +455,33 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "timeout": timeout_failures,
         "complete": pipeline_summary["successful_URLs"]
     }
+
+    # Build search discovery section for status.json
+    discovery = pipeline_summary.get("search_discovery")
+    search_discovery_section = None
+    if discovery:
+        search_error_code_counts = {}
+        for sr in discovery.get("search_results", []):
+            code = sr.get("error_code")
+            if code is not None:
+                search_error_code_counts[code] = search_error_code_counts.get(code, 0) + 1
+
+        search_discovery_section = {
+            "total_searches": discovery["total_searches"],
+            "successful_searches": discovery["successful_searches"],
+            "failed_searches": discovery["failed_searches"],
+            "total_urls_discovered": discovery["total_urls_discovered"],
+            "timing": discovery["timing"],
+            "per_search_results": discovery["search_results"],
+            "error_code_distribution": search_error_code_counts,
+            "errors": discovery["errors"],
+            "warnings": discovery["warnings"],
+        }
     
     status_data = {
         "timestamp": datetime.now().isoformat(),
         "success": pipeline_summary["failed_URLs"] == 0 and export_error is None,
+        "search_discovery": search_discovery_section,
         "total_URLs": pipeline_summary["total_URLs"],
         "successful_URLs": pipeline_summary["successful_URLs"],
         "failed_URLs": pipeline_summary["failed_URLs"],
@@ -427,7 +495,6 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "warnings": pipeline_summary.get("warnings", [])
     }
     
-    # if export was successful adds csv file info
     if export_summary:
         for table_name, row_count in export_summary.items():
             if row_count is not None:
@@ -436,7 +503,6 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
                     "rows": row_count
                 })
     
-    # write status.json
     status_path = os.path.join(results_dir, "status.json")
     try:
         with open(status_path, 'w') as f:

@@ -81,7 +81,7 @@ def remove_empty_lines(text):
 
 
 def pdf_quality_check(text):
-   # determines if my mupdf extraction works properly via legnth and unknown chars, if not, use adobe
+   # determines if previous extraction method was succesful via length and ratio of uknown chars.
     if not text or len(text.strip()) < MIN_BILL_TEXT_LENGTH:
         return False
     replacement_count = text.count(chr(0xFFFD))
@@ -889,4 +889,3 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
                 cursor.close()
         except:
             pass
-        

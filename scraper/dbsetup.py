@@ -44,6 +44,31 @@ connection_setup = create_connection(host, user, pw, database)
 #
 #     definition_text:  definition
 #
+# 4. search_links
+#
+# tracks URLs discovered via search APIs (e.g. SERP API)
+#     id (Primary Key): unique ID per discovered link
+#
+#     search_method: how the link was found (e.g. "SERPAPI")
+#
+#     keyword_search: the full query string sent to the search engine
+#
+#     other_filters: serialized URL filters applied after search
+#
+#     link: the discovered URL
+#
+#     processing_time: seconds taken by the SERP API call that found this link
+#
+#     num_api_tries: how many SERP API attempts were made for this query
+#
+#     num_api_failures: how many of those attempts failed
+#
+#     failure_type: error code if the search failed
+#
+#     is_successful: 1 if the link was accepted after filtering, 0 otherwise
+#
+#     discovered_at: timestamp of discovery
+#
 #
 def table_create():
     connection = connection_setup
@@ -97,6 +122,23 @@ def table_create():
                     ) ENGINE=InnoDB;
                 """)
 
+        # 4. search discovery table
+        cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS search_links (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        search_method VARCHAR(100) NOT NULL,
+                        keyword_search VARCHAR(1000) NOT NULL,
+                        other_filters VARCHAR(1000),
+                        link VARCHAR(500) NOT NULL,
+                        processing_time DECIMAL(10,3),
+                        num_api_tries INT DEFAULT 0,
+                        num_api_failures INT DEFAULT 0,
+                        failure_type VARCHAR(100),
+                        is_successful TINYINT DEFAULT 1,
+                        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB;
+                """)
+
 
     except Error as e:
         print(f"Error: {e}")
@@ -104,3 +146,6 @@ def table_create():
         if connection and connection.is_connected():
             cursor.close()
             connection.close()
+
+if __name__ == "__main__":
+    table_create()
