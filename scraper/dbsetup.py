@@ -147,7 +147,7 @@ def table_create():
 
         # --- Schema migration for existing DBs ---
         # helps migrate old dbs
-        # Add the missing column + FK without requiring a destructive rebuild.
+        """ INTERNAL USE, FIXING CURRENT DB """
         try:
             cursor.execute(
                 """

@@ -476,6 +476,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
             "total_urls_discovered": discovery["total_urls_discovered"],
             "timing": discovery["timing"],
             "per_search_results": discovery["search_results"],
+            "url_acceptance_rate": discovery.get("url_acceptance_rate"),
             "error_code_distribution": search_error_code_counts,
             "errors": discovery["errors"],
             "warnings": discovery["warnings"],

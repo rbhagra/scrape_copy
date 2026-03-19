@@ -854,7 +854,7 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
         cursor = connection.cursor()
 
         # If we have the search_link_id, fetch the originating search query text.
-        # This lets us later join leg_processed -> search_links and export search_term.
+        #  lets us  join leg_processed -> search_links and export search_term.
         search_term = None
         if search_link_id is not None:
             cursor.execute(

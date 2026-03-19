@@ -210,6 +210,7 @@ def discover_urls(searches, connection):
                     "raw_results_count": 0,
                     "accepted_count": 0,
                     "rejected_count": 0,
+                    "accepted_percentage": 0.0,
                     "error": entry_error,
                     "error_code": entry_error_code,
                     "warning": None,
@@ -235,6 +236,7 @@ def discover_urls(searches, connection):
                     "raw_results_count": 0,
                     "accepted_count": 0,
                     "rejected_count": 0,
+                    "accepted_percentage": 0.0,
                     "error": entry_error,
                     "error_code": entry_error_code,
                     "warning": None,
@@ -274,6 +276,9 @@ def discover_urls(searches, connection):
             total_accepted_links += accepted
             total_rejected_links += rejected
 
+            denom_links = accepted + rejected
+            accepted_percentage = (accepted / denom_links) * 100 if denom_links > 0 else 0.0
+
             search_results.append({
                 "query": query,
                 "domain": domain,
@@ -283,6 +288,7 @@ def discover_urls(searches, connection):
                 "raw_results_count": len(raw_links),
                 "accepted_count": accepted,
                 "rejected_count": rejected,
+                "accepted_percentage": round(accepted_percentage, 2),
                 "error": None if accepted > 0 else entry_warning,
                 "error_code": None if accepted > 0 else entry_error_code,
                 "warning": entry_warning,
@@ -306,10 +312,10 @@ def discover_urls(searches, connection):
     overall_duration = round(time.time() - overall_start, 3)
 
     successful_searches = sum(1 for r in search_results if r["error"] is None)
-    failed_searches = len(search_results) - successful_searches
-
+    failed_searches = len(search_results) - successful_searches 
     denom = total_accepted_links + total_rejected_links
     url_acceptance_rate = (total_accepted_links / denom) if denom > 0 else 0.0
+
 
     timing = {
         "total_duration_seconds": overall_duration,
