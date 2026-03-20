@@ -104,21 +104,22 @@ def export_table_to_csv(connection, table_name, output_path, columns=None, where
             cursor.close()
 
 
-def export_all_tables(connection, results_dir, html_ids=None):
+def export_all_tables(connection, results_dir, html_ids=None, search_link_ids=None):
     """
-    Export all three main tables (leg_html, leg_processed, definitions) to CSV files.
+    Export main pipeline tables to CSV files.
     
     Args:
         connection: Database connection
         results_dir: Directory to save CSV files
-        html_ids: List of HTML IDs to filter by (only export bills from this run)
+        html_ids: Optional list of `leg_html.search_id` values to filter by (only export bills from this run)
+        search_link_ids: Optional list of `search_links.id` values to filter by (only export SERP accepted links from this run)
     
     Returns:
         dict: Dictionary with table names as keys and row counts as values
     """
     exports = {}
     
-    # Build WHERE clause for filtering by html_ids
+    # Build WHERE clause for filtering by html_ids (derived from this run's successful/scraped records)
     where_clause = None
     params = None
     if html_ids and len(html_ids) > 0:
@@ -127,6 +128,38 @@ def export_all_tables(connection, results_dir, html_ids=None):
         processed_where = f"raw_doc_id IN ({placeholders})"
         params = tuple(html_ids)
     
+    # Build WHERE clause for filtering by search_link_ids (derived directly from this run's SERP accepted links)
+    search_where_clause = None
+    search_params = None
+    if search_link_ids and len(search_link_ids) > 0:
+        placeholders = ",".join(["%s"] * len(search_link_ids))
+        search_where_clause = f"id IN ({placeholders})"
+        search_params = tuple(search_link_ids)
+
+    # Export search_links (what SERP layer accepted for this run)
+    search_path = f"{results_dir}/search_links.csv"
+    search_count = export_table_to_csv(
+        connection,
+        "search_links",
+        search_path,
+        columns=[
+            "id",
+            "search_method",
+            "keyword_search",
+            "other_filters",
+            "link",
+            "processing_time",
+            "num_api_tries",
+            "num_api_failures",
+            "failure_type",
+            "is_successful",
+            "discovered_at",
+        ],
+        where_clause=search_where_clause if search_link_ids else None,
+        params=search_params if search_link_ids else None,
+    )
+    exports["search_links"] = search_count
+
     # Export leg_html - including raw content
     html_path = f"{results_dir}/html_records.csv"
     html_count = export_table_to_csv(

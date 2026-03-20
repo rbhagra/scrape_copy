@@ -372,13 +372,14 @@ def run_pipeline(config, results_dir):
     return summary
 
 
-def export_results_to_csv(results_dir, html_ids=None):
+def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
     """
     Exports db tables to csv, filtered by html_ids from this run
     
     Args:
         results_dir: Directory to save CSV files
         html_ids: List of html IDs to export (only bills from this run - can change if want all)
+        search_link_ids: Optional list of search_links.id values to export (only SERP accepted links from this run)
     
     Returns:
         dict: Export summary with row counts
@@ -391,7 +392,12 @@ def export_results_to_csv(results_dir, html_ids=None):
             print("Failed to connect to database for export")
             return None
         
-        exports = export_all_tables(connection, results_dir, html_ids=html_ids)
+        exports = export_all_tables(
+            connection,
+            results_dir,
+            html_ids=html_ids,
+            search_link_ids=search_link_ids,
+        )
         
         if connection.is_connected():
             connection.close()
@@ -527,11 +533,18 @@ def main():
         # run the pipeline
         pipeline_summary = run_pipeline(config, results_dir)
         
-        # Export results to CSV, taking only bills from that run
+        # Export results to CSV, taking only records from this run
         html_ids = pipeline_summary.get("html_ids", [])
+        search_discovery = pipeline_summary.get("search_discovery") or {}
+        url_to_search_link_id = search_discovery.get("url_to_search_link_id") or {}
+        search_link_ids = list(url_to_search_link_id.values())
         export_error = None
         try:
-            export_summary = export_results_to_csv(results_dir, html_ids=html_ids)
+            export_summary = export_results_to_csv(
+                results_dir,
+                html_ids=html_ids,
+                search_link_ids=search_link_ids,
+            )
             if export_summary is None:
                 export_error = "Export returned no results"
         except Exception as e:
