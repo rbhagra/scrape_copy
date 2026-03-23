@@ -13,34 +13,14 @@ load_dotenv()
 serp_api_key = os.getenv("serp_api_key")
 
 
-def _build_query(term, domain):
-    """Build a Google query string from a search term and domain."""
-    return f"{term} site:{domain}"
+def _build_query(term, domain, inurl=None):
+    """Build a Google query string from a search term, domain, and optional inurl filter."""
+    query = f'"{term}" site:{domain}'
+    if inurl:
+        query += f" inurl:{inurl}"
+    return query
 
 
-def _serialize_filters(url_filters):
-    """Serialize url_filters dict to a compact string for DB storage."""
-    if not url_filters:
-        return None
-    parts = []
-    for substring in url_filters.get("must_contain", []):
-        parts.append(f"must_contain:{substring}")
-    for substring in url_filters.get("must_not_contain", []):
-        parts.append(f"must_not_contain:{substring}")
-    return "; ".join(parts) if parts else None
-
-
-def _passes_filters(url, url_filters):
-    """Return True if the URL passes all must_contain / must_not_contain filters."""
-    if not url_filters:
-        return True
-    for substring in url_filters.get("must_contain", []):
-        if substring not in url:
-            return False
-    for substring in url_filters.get("must_not_contain", []):
-        if substring in url:
-            return False
-    return True
 
 
 def _search_serp_api(query, max_results, max_retries=2):
@@ -145,23 +125,22 @@ def _record_link(cursor, search_method, keyword_search, other_filters, link,
 
 def discover_urls(searches, connection):
     """
-    For each search entry, query SERP API, apply URL filters,
-    record results in search_links, and return a structured discovery report.
+    For each search entry, query SERP API, record results in search_links,
+    and return a structured discovery report.
 
     Args:
         searches: list of search entry dicts, each with keys:
-            term, domain, url_filters (optional), max_results (optional)
+            term, domain, inurl (optional), max_results (optional)
         connection: open MySQL connection
 
     Returns:
         dict with keys:
-            urls                   - deduplicated list of accepted URLs
+            urls                   - deduplicated list of discovered URLs
             url_to_search_link_id  - dict mapping each URL to its search_links.id
             search_results         - per-entry metrics list
             timing                 - aggregate timing stats
             total_searches / successful_searches / failed_searches
             total_urls_discovered
-            url_acceptance_rate    - accepted / (accepted + rejected) across all SERP links
             errors                 - list of error strings
             warnings               - list of warning strings
     """
@@ -172,8 +151,6 @@ def discover_urls(searches, connection):
     all_errors = []
     all_warnings = []
     search_durations = []
-    total_accepted_links = 0
-    total_rejected_links = 0
 
     cursor = None
     try:
@@ -182,11 +159,10 @@ def discover_urls(searches, connection):
         for entry in searches:
             term = entry["term"]
             domain = entry["domain"]
-            url_filters = entry.get("url_filters", {})
+            inurl = entry.get("inurl")
             max_results = entry.get("max_results", 10)
 
-            query = _build_query(term, domain)
-            filters_str = _serialize_filters(url_filters)
+            query = _build_query(term, domain, inurl)
 
             entry_start = time.time()
             print(f"  Searching: {query}  (max {max_results} results)")
@@ -196,7 +172,6 @@ def discover_urls(searches, connection):
 
             entry_error = serp["error"]
             entry_error_code = serp["error_code"]
-            entry_warning = None
 
             if entry_error:
                 print(f"    ERROR: {entry_error}")
@@ -207,13 +182,9 @@ def discover_urls(searches, connection):
                     "duration_seconds": round(time.time() - entry_start, 3),
                     "num_tries": serp["num_tries"],
                     "num_failures": serp["num_failures"],
-                    "raw_results_count": 0,
-                    "accepted_count": 0,
-                    "rejected_count": 0,
-                    "accepted_percentage": 0.0,
+                    "results_count": 0,
                     "error": entry_error,
                     "error_code": entry_error_code,
-                    "warning": None,
                 })
                 search_durations.append(time.time() - entry_start)
                 continue
@@ -233,51 +204,29 @@ def discover_urls(searches, connection):
                     "duration_seconds": round(time.time() - entry_start, 3),
                     "num_tries": serp["num_tries"],
                     "num_failures": serp["num_failures"],
-                    "raw_results_count": 0,
-                    "accepted_count": 0,
-                    "rejected_count": 0,
-                    "accepted_percentage": 0.0,
+                    "results_count": 0,
                     "error": entry_error,
                     "error_code": entry_error_code,
-                    "warning": None,
                 })
                 search_durations.append(time.time() - entry_start)
                 continue
 
-            accepted = 0
-            rejected = 0
             for link in raw_links:
-                if _passes_filters(link, url_filters):
-                    link_id = _record_link(
-                        cursor, "SERPAPI", query, filters_str, link,
-                        processing_time=api_duration,
-                        num_api_tries=serp["num_tries"],
-                        num_api_failures=serp["num_failures"],
-                        is_successful=1,
-                    )
-                    if link not in all_urls:
-                        url_to_search_link_id[link] = link_id
-                    all_urls.add(link)
-                    accepted += 1
-                else:
-                    rejected += 1
+                link_id = _record_link(
+                    cursor, "SERPAPI", query, None, link,
+                    processing_time=api_duration,
+                    num_api_tries=serp["num_tries"],
+                    num_api_failures=serp["num_failures"],
+                    is_successful=1,
+                )
+                if link not in all_urls:
+                    url_to_search_link_id[link] = link_id
+                all_urls.add(link)
 
-            if accepted == 0 and rejected > 0:
-                entry_warning = f"All {rejected} results filtered out for: {query}"
-                entry_error_code = ErrorCode.URL_FILTER_REJECTED_ALL.value
-                print(f"    WARNING: {entry_warning}")
-                all_warnings.append(entry_warning)
-            else:
-                print(f"    {accepted} accepted, {rejected} filtered out")
+            print(f"    {len(raw_links)} results found")
 
             entry_duration = round(time.time() - entry_start, 3)
             search_durations.append(entry_duration)
-
-            total_accepted_links += accepted
-            total_rejected_links += rejected
-
-            denom_links = accepted + rejected
-            accepted_percentage = (accepted / denom_links) * 100 if denom_links > 0 else 0.0
 
             search_results.append({
                 "query": query,
@@ -285,13 +234,9 @@ def discover_urls(searches, connection):
                 "duration_seconds": entry_duration,
                 "num_tries": serp["num_tries"],
                 "num_failures": serp["num_failures"],
-                "raw_results_count": len(raw_links),
-                "accepted_count": accepted,
-                "rejected_count": rejected,
-                "accepted_percentage": round(accepted_percentage, 2),
-                "error": None if accepted > 0 else entry_warning,
-                "error_code": None if accepted > 0 else entry_error_code,
-                "warning": entry_warning,
+                "results_count": len(raw_links),
+                "error": None,
+                "error_code": None,
             })
 
         connection.commit()
@@ -312,10 +257,7 @@ def discover_urls(searches, connection):
     overall_duration = round(time.time() - overall_start, 3)
 
     successful_searches = sum(1 for r in search_results if r["error"] is None)
-    failed_searches = len(search_results) - successful_searches 
-    denom = total_accepted_links + total_rejected_links
-    url_acceptance_rate = (total_accepted_links / denom) if denom > 0 else 0.0
-
+    failed_searches = len(search_results) - successful_searches
 
     timing = {
         "total_duration_seconds": overall_duration,
@@ -337,7 +279,6 @@ def discover_urls(searches, connection):
         "successful_searches": successful_searches,
         "failed_searches": failed_searches,
         "total_urls_discovered": len(url_list),
-        "url_acceptance_rate": url_acceptance_rate,
         "errors": all_errors,
         "warnings": all_warnings,
     }

@@ -131,7 +131,6 @@ def load_config(config_path):
     print(f"  Successful searches: {discovery['successful_searches']}")
     print(f"  Failed searches:     {discovery['failed_searches']}")
     print(f"  URLs discovered:     {discovery['total_urls_discovered']}")
-    print(f"  URL acceptance rate: {discovery['url_acceptance_rate']}%")
     print(f"  Total time:          {discovery['timing']['total_duration_seconds']}s")
     if discovery["errors"]:
         print(f"  Errors:")
@@ -482,7 +481,6 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
             "total_urls_discovered": discovery["total_urls_discovered"],
             "timing": discovery["timing"],
             "per_search_results": discovery["search_results"],
-            "url_acceptance_rate": discovery.get("url_acceptance_rate"),
             "error_code_distribution": search_error_code_counts,
             "errors": discovery["errors"],
             "warnings": discovery["warnings"],

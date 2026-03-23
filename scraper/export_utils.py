@@ -111,15 +111,15 @@ def export_all_tables(connection, results_dir, html_ids=None, search_link_ids=No
     Args:
         connection: Database connection
         results_dir: Directory to save CSV files
-        html_ids: Optional list of `leg_html.search_id` values to filter by (only export bills from this run)
-        search_link_ids: Optional list of `search_links.id` values to filter by (only export SERP accepted links from this run)
+        html_ids:  list of `leg_html.search_id` values to filter by (only export bills from this run)
+        search_link_ids:  list of `search_links.id` values to filter by (only export SERP accepted links from this run)
     
     Returns:
         dict: Dictionary with table names as keys and row counts as values
     """
     exports = {}
     
-    # Build WHERE clause for filtering by html_ids (derived from this run's successful/scraped records)
+    # Build WHERE clause for filtering by html_ids 
     where_clause = None
     params = None
     if html_ids and len(html_ids) > 0:
@@ -136,7 +136,7 @@ def export_all_tables(connection, results_dir, html_ids=None, search_link_ids=No
         search_where_clause = f"id IN ({placeholders})"
         search_params = tuple(search_link_ids)
 
-    # Export search_links (what SERP layer accepted for this run)
+    # Export search_links 
     search_path = f"{results_dir}/search_links.csv"
     search_count = export_table_to_csv(
         connection,
