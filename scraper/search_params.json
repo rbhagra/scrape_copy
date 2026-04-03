@@ -1,0 +1,61 @@
+{
+  "Terms": [
+    "Artificial Intelligence",
+    "AI Bills",
+    "Algorithm",
+    "AI Governance",
+    "Automated Decision Making",
+    "Training Data",
+    "AI Transparency",
+    "AI",
+    "Ethical AI",
+    "Model Card",
+    "Algorithmic Impact Assessment"
+  ],
+  "Jurisdictions": {
+    "Congress": "congress.gov",
+    "Federal Register": "federalregister.gov",
+    "National Institute of Standards and Technology": "nist.gov",
+    "The White House": "whitehouse.gov",
+    "California": "leginfo.legislature.ca.gov",
+    "Texas": "capitol.texas.gov",
+    "Colorado": "leg.colorado.gov",
+    "Utah": "le.utah.gov",
+    "New York": "nyassembly.gov",
+    "Virginia": "lis.virginia.gov",
+    "Illinois": "ilga.gov",
+    "European Union Legislature": "eur-lex.europa.eu",
+    "United Kingdom": "legislation.gov.uk",
+    "Canada (Federal)": "parl.ca/legisinfo"
+  },
+  "Bill Signals / Path Hints": {
+    "congress.gov": {
+      "signals": ["/bill", "/xxx-congress"]
+    },
+    "federalregister.gov": {},
+    "leginfo.legislature.ca.gov": {
+      "signals": ["Bill Text Client"]
+    },
+    "eur-lex.europa.eu": {},
+    "legislation.gov.uk": {},
+    "parl.ca/legisinfo": {},
+    "capitol.texas.gov": {},
+    "leg.colorado.gov": {
+      "signals": ["/bills"]
+    },
+    "le.utah.gov": {
+      "signals": ["/bills"]
+    },
+    "nyassembly.gov": {
+      "signals": ["/leg"]
+    },
+    "nist.gov": {
+      "signals": ["/nistpubs"]
+    },
+    "whitehouse.gov": {},
+    "lis.virginia.gov": {},
+    "ilga.gov": {
+      "signals": ["/legislation"]
+    }
+  }
+}
