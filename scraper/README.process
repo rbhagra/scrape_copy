@@ -10,7 +10,7 @@ Process for running pipeline
   - Review `config.example.json` or `test_config.json` as examples
   - Required top-level keys:
     - `URLs`: list of bill URLs to scrape.
-    - `settings`: object with value for allow_duplicates
+    - `settings`: object with pipeline settings (e.g. min_bill_text_length)
   - Save your config file anywhere accessible in project root
 
 -3 ensure all libraries and dependencies are installed 

@@ -86,8 +86,6 @@ def validate_config(config_path):
 
     if "settings" not in config:
         config["settings"] = {}
-    if "allow_duplicates" not in config["settings"]:
-        config["settings"]["allow_duplicates"] = True
 
     if "URLs" in config:
         raise ValueError("Search-only mode: config must not include 'URLs'. Provide 'searches' instead.")
@@ -159,13 +157,12 @@ def load_config(config_path):
     return config
 
 
-def process_url(url, allow_duplicates, driver=None, search_link_id=None):
+def process_url(url, driver=None, search_link_id=None):
     """
     Process a single URL through the pipeline (HTML fetch + text extraction).
     
     Args:
         url: URL to process
-        allow_duplicates: Whether to allow duplicate processing
         driver: Optional existing WebDriver instance to reuse
         search_link_id: Optional search_links.id that discovered this URL
     
@@ -173,7 +170,7 @@ def process_url(url, allow_duplicates, driver=None, search_link_id=None):
         dict: Result dictionary with success status, details, and warnings
     """
     try:
-        html_result = store_html(url, allow_duplicates=allow_duplicates, driver=driver, search_link_id=search_link_id)
+        html_result = store_html(url, driver=driver, search_link_id=search_link_id)
         
         if html_result.get("error"):
             return {
@@ -201,7 +198,6 @@ def process_url(url, allow_duplicates, driver=None, search_link_id=None):
             }
         
         txt_result = retrieve_txt(
-            allow_duplicates=allow_duplicates,
             html_id=html_id,
             driver=driver,
             search_link_id=search_link_id
@@ -265,7 +261,6 @@ def run_pipeline(config, results_dir):
         dict: Pipeline execution summary
     """
     URLs = config["URLs"]
-    allow_duplicates = config["settings"]["allow_duplicates"]
     url_to_search_link_id = config.get("_search_discovery", {}).get("url_to_search_link_id", {})
     
     results = []
@@ -296,8 +291,8 @@ def run_pipeline(config, results_dir):
             # stuck URL can never block the rest of the pipeline.
             result_holder = [None]
 
-            def _run(u=url, dup=allow_duplicates, d=driver, slid=url_to_search_link_id.get(url)):
-                result_holder[0] = process_url(u, dup, driver=d, search_link_id=slid)
+            def _run(u=url, d=driver, slid=url_to_search_link_id.get(url)):
+                result_holder[0] = process_url(u, driver=d, search_link_id=slid)
 
             thread = threading.Thread(target=_run, daemon=True)
             thread.start()

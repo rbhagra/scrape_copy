@@ -426,13 +426,12 @@ def fetch_with_selenium(source_url, driver=None): #general selenium function for
 class ExtractionContext:
     """Context object to pass extraction state between handler functions."""
     def __init__(self, connection, id_val, source_url, raw_content, domain,
-                 allow_duplicates, search_link_id, start_time):
+                 search_link_id, start_time):
         self.connection = connection
         self.id_val = id_val
         self.source_url = source_url
         self.raw_content = raw_content
         self.domain = domain
-        self.allow_duplicates = allow_duplicates
         self.search_link_id = search_link_id
         self.start_time = start_time
         self.num_tries = 0
@@ -466,7 +465,6 @@ def _store_failure_result(ctx, failure_type, *, method=None, error=None, warning
         ctx.id_val,
         None,
         ctx.source_url,
-        allow_duplicates=ctx.allow_duplicates,
         search_link_id=ctx.search_link_id,
         domain=ctx.domain,
         num_tries=ctx.num_tries,
@@ -493,7 +491,6 @@ def _store_success_result(ctx, clean_text, method, *, warning=None, extraction_m
         ctx.id_val,
         clean_text,
         ctx.source_url,
-        allow_duplicates=ctx.allow_duplicates,
         search_link_id=ctx.search_link_id,
         domain=ctx.domain,
         num_tries=ctx.num_tries,
@@ -825,12 +822,11 @@ def _handle_generic_url(ctx, soup, driver=None):
     )
 
 
-def retrieve_txt(allow_duplicates=False, html_id=None, driver=None, search_link_id=None):
+def retrieve_txt(html_id=None, driver=None, search_link_id=None):
     """
     Extract text from HTML content using appropriate handler based on URL type.
     
     Args:
-        allow_duplicates: Whether to allow duplicate processing
         html_id: Specific HTML record ID to process
         driver: Optional existing WebDriver instance to reuse
         search_link_id: Optional search_links.id that discovered this URL
@@ -868,7 +864,7 @@ def retrieve_txt(allow_duplicates=False, html_id=None, driver=None, search_link_
         
         ctx = ExtractionContext(
             connection=connection, id_val=id_val, source_url=source_url,
-            raw_content=raw_content, domain=domain, allow_duplicates=allow_duplicates,
+            raw_content=raw_content, domain=domain,
             search_link_id=search_link_id, start_time=start_time
         )
         
@@ -920,7 +916,7 @@ def retrieve_txt(allow_duplicates=False, html_id=None, driver=None, search_link_
         except Exception:
             pass
 
-def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=False,
+def store_txt(connection, raw_id, clean_text, source_url=None,
               domain=None, num_tries=0, num_failures=0, failure_type=None,
               warnings_text=None, text_processing_method=None, processing_time=None,
               is_successful=1, search_link_id=None):
@@ -938,15 +934,6 @@ def store_txt(connection, raw_id, clean_text, source_url=None, allow_duplicates=
             row = cursor.fetchone()
             if row:
                 search_term = row[0]
-        
-        if not allow_duplicates:
-            check_query = "SELECT id FROM leg_processed WHERE raw_doc_id = %s"
-            cursor.execute(check_query, (raw_id,))
-            existing = cursor.fetchone()
-            
-            if existing:
-                print(f"Bill text already processed (processed_id: {existing[0]}). Skipping duplicate.")
-                return existing[0]
         
         insert_query = """INSERT INTO leg_processed 
             (raw_doc_id, source_url, clean_text, domain, num_tries_text_processing, 

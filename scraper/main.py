@@ -13,16 +13,15 @@ host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
 #### USED FOR LOCALIZED TESTING. DO NOT RUN FOR PIPELINE EXECUTION.
-def process_new_url(url, allow_duplicates=False):
+def process_new_url(url):
     """
     Process a new URL through the pipeline (HTML fetch + text extraction).
     
     Args:
         url: The URL to process
-        allow_duplicates: If True, allows processing duplicate URLs/text. If False, skips duplicates.
     """
     print(f"Processing new bill: {url}")
-    html_result = store_html(url, allow_duplicates=allow_duplicates)
+    html_result = store_html(url)
     
     if html_result.get("error"):
         print(f"HTML fetch failed: {html_result['error']}")
@@ -33,7 +32,7 @@ def process_new_url(url, allow_duplicates=False):
         print("Failed to get html_id from store_html")
         return html_result
     
-    txt_result = retrieve_txt(allow_duplicates=allow_duplicates, html_id=html_id)
+    txt_result = retrieve_txt(html_id=html_id)
     
     return {
         "html_result": html_result,
@@ -105,12 +104,9 @@ def process_all_unprocessed_text():
             connection.close()
 
 if __name__ == "__main__":
-    # Configuration: set to true to allow duplicates or false to avoid them 
-    ALLOW_DUPLICATES = True
-    
     # Option 1: Process a new URL (full pipeline: HTML → Text → Definitions)
     url = "https://capitol.texas.gov/tlodocs/89R/billtext/pdf/HB00149I.pdf"
-    process_new_url(url, allow_duplicates=ALLOW_DUPLICATES)
+    process_new_url(url)
     
     # Option 2: Process all existing unprocessed HTML records (Text → Definitions)
     # process_all_unprocessed_html()

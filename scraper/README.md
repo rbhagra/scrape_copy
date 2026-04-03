@@ -60,14 +60,12 @@ Create a JSON config file with URLs to scrape:
     "https://capitol.texas.gov/tlodocs/89R/billtext/pdf/HB00149I.pdf"
   ],
   "settings": {
-    "allow_duplicates": true,
     "min_bill_text_length": 500
   }
 }
 ```
 
 **Settings:**
-- `allow_duplicates` - If `false`, skip URLs already in the database (default: `true`)
 - `min_bill_text_length` - Minimum character threshold for valid extracted text (default: `500`)
 
 ### Output

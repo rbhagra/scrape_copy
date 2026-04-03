@@ -17,6 +17,7 @@ def _build_query(term, domain, inurl=None):
     """Build a Google query string from a search term, domain, and optional inurl filter."""
     query = f'"{term}" site:{domain}'
     if inurl:
+        print (query + "this is from in URL")
         query += f" inurl:{inurl}"
     return query
 

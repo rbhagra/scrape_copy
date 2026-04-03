@@ -161,13 +161,12 @@ def classify_block_error(html_content):
     return None, None
 
 
-def store_html(url, allow_duplicates=False, driver=None, search_link_id=None):
+def store_html(url, driver=None, search_link_id=None):
     """
     Returns dict: {"html_id": int or None, "warning": str or None, "error": str or None, "stage": str}
 
     Args:
         url: URL to fetch and store
-        allow_duplicates: Whether to allow duplicate URLs
         driver: Optional existing WebDriver instance to reuse
         search_link_id: Optional search_links.id that discovered this URL
     """
@@ -210,14 +209,6 @@ def store_html(url, allow_duplicates=False, driver=None, search_link_id=None):
     try:
         connection = create_connection(host, user, pw, database)
         cursor = connection.cursor()
-
-        if not allow_duplicates:
-            check_query = "SELECT search_id FROM leg_html WHERE source_url = %s"
-            cursor.execute(check_query, (url,))
-            existing = cursor.fetchone()
-
-            if existing:
-                return {"html_id": existing[0], "warning": "Duplicate URL, using existing record", "error": None, "error_code": ErrorCode.DUPLICATE_SKIPPED.value, "stage": "complete", "extraction_method": None}
 
         if fetch_failed:
             processing_time = round(time.time() - start_time, 3)
