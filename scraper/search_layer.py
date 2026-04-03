@@ -123,7 +123,7 @@ def _record_link(cursor, search_method, keyword_search, other_filters, link,
     return cursor.lastrowid
 
 
-def discover_urls(searches, connection):
+def discover_urls(searches, connection, incremental=False):
     """
     For each search entry, query SERP API, record results in search_links,
     and return a structured discovery report.
@@ -131,7 +131,8 @@ def discover_urls(searches, connection):
     Args:
         searches: list of search entry dicts, each with keys:
             term, domain, inurl (optional), max_results (optional)
-        connection: open MySQL connection
+        incremental: if True, skip URLs already present in search_links
+            (used by scheduled runs to avoid re-recording known URLs)
 
     Returns:
         dict with keys:
@@ -211,7 +212,17 @@ def discover_urls(searches, connection):
                 search_durations.append(time.time() - entry_start)
                 continue
 
+            entry_new = 0
             for link in raw_links:
+                if incremental:
+                    cursor.execute(
+                        "SELECT id FROM search_links WHERE link = %s LIMIT 1",
+                        (link,),
+                    )
+                    existing = cursor.fetchone()
+                    if existing:
+                        continue
+
                 link_id = _record_link(
                     cursor, "SERPAPI", query, None, link,
                     processing_time=api_duration,
@@ -222,8 +233,12 @@ def discover_urls(searches, connection):
                 if link not in all_urls:
                     url_to_search_link_id[link] = link_id
                 all_urls.add(link)
+                entry_new += 1
 
-            print(f"    {len(raw_links)} results found")
+            if incremental:
+                print(f"    {entry_new} new results")
+            else:
+                print(f"    {len(raw_links)} results found")
 
             entry_duration = round(time.time() - entry_start, 3)
             search_durations.append(entry_duration)
@@ -234,7 +249,7 @@ def discover_urls(searches, connection):
                 "duration_seconds": entry_duration,
                 "num_tries": serp["num_tries"],
                 "num_failures": serp["num_failures"],
-                "results_count": len(raw_links),
+                "results_count": entry_new if incremental else len(raw_links),
                 "error": None,
                 "error_code": None,
             })

@@ -19,7 +19,8 @@ from dbconnection import create_connection
 from html_storer import store_html
 from export_utils import export_all_tables, compute_domain_metrics
 from error_codes import ErrorCode
-from txt_storer import is_pdf_url
+from constants import Timeouts
+from txt_storer import is_pdf_url, retrieve_txt
 from selenium import webdriver
 
 # Load environment variables
@@ -60,38 +61,34 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_config(config_path):
+def validate_config(config_path):
     """
-    Load and validate the configuration file.
-    Search-only mode:
-      - user provides `searches` in the config
-      - we resolve searches into `URLs` internally via SERP API
-    
+    Load and validate the JSON configuration file.
+
     Args:
         config_path: Path to the JSON config file
-    
+
     Returns:
-        dict: Validated configuration dictionary
-    errors raies:
+        dict: Validated configuration dictionary with defaults applied
+
+    Raises:
         FileNotFoundError: If config file doesn't exist
         ValueError: If config is invalid
     """
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
-    
+
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in config file: {e}")
-    
-    # Set defaults for optional fields
+
     if "settings" not in config:
         config["settings"] = {}
     if "allow_duplicates" not in config["settings"]:
         config["settings"]["allow_duplicates"] = True
-    
-    # Enforce search-only: reject direct URL configs
+
     if "URLs" in config:
         raise ValueError("Search-only mode: config must not include 'URLs'. Provide 'searches' instead.")
 
@@ -106,6 +103,21 @@ def load_config(config_path):
             raise ValueError(f"Search entry {i} must be an object")
         if "term" not in entry or "domain" not in entry:
             raise ValueError(f"Search entry {i} must have 'term' and 'domain' keys")
+
+    return config
+
+
+def load_config(config_path):
+    """
+    Validate config, run search discovery, and return config with URLs populated.
+
+    Args:
+        config_path: Path to the JSON config file
+
+    Returns:
+        dict: Configuration dictionary with URLs resolved via SERP API
+    """
+    config = validate_config(config_path)
 
     from search_layer import discover_urls
     connection = create_connection(host, user, pw, database)
@@ -123,7 +135,6 @@ def load_config(config_path):
     config["URLs"] = discovery["urls"]
     config["_search_discovery"] = discovery
 
-    # Print search discovery summary
     print(f"{'='*70}")
     print(f"  SEARCH DISCOVERY SUMMARY")
     print(f"{'='*70}")
@@ -150,7 +161,7 @@ def load_config(config_path):
 
 def process_url(url, allow_duplicates, driver=None, search_link_id=None):
     """
-    Process a single URL through the pipeline.
+    Process a single URL through the pipeline (HTML fetch + text extraction).
     
     Args:
         url: URL to process
@@ -162,42 +173,72 @@ def process_url(url, allow_duplicates, driver=None, search_link_id=None):
         dict: Result dictionary with success status, details, and warnings
     """
     try:
-        result = store_html(url, allow_duplicates=allow_duplicates, driver=driver, search_link_id=search_link_id)
+        html_result = store_html(url, allow_duplicates=allow_duplicates, driver=driver, search_link_id=search_link_id)
         
-        # Check for errors first (e.g. Cloudflare block, embedded-doc failure)
-        if result.get("error"):
+        if html_result.get("error"):
             return {
                 "url": url,
                 "success": False,
-                "html_id": result.get("html_id"),
-                "warning": result.get("warning"),
-                "error": result["error"],
-                "error_code": result.get("error_code", ErrorCode.UNKNOWN_ERROR.value),
-                "stage": result.get("stage", "html_fetch"),
-                "extraction_method": result.get("extraction_method")
+                "html_id": html_result.get("html_id"),
+                "warning": html_result.get("warning"),
+                "error": html_result["error"],
+                "error_code": html_result.get("error_code", ErrorCode.UNKNOWN_ERROR.value),
+                "stage": html_result.get("stage", "html_fetch"),
+                "extraction_method": None
             }
-        elif result.get("html_id") is not None:
-            return {
-                "url": url,
-                "success": True,
-                "html_id": result["html_id"],
-                "warning": result.get("warning"),
-                "error": None,
-                "error_code": None,
-                "stage": "complete",
-                "extraction_method": result.get("extraction_method")
-            }
-        else:
+        
+        html_id = html_result.get("html_id")
+        if html_id is None:
             return {
                 "url": url,
                 "success": False,
                 "html_id": None,
-                "warning": result.get("warning"),
-                "error": result.get("error") or "Failed to store HTML",
-                "error_code": result.get("error_code", ErrorCode.UNKNOWN_ERROR.value),
-                "stage": result.get("stage", "html_fetch"),
-                "extraction_method": result.get("extraction_method")
+                "warning": html_result.get("warning"),
+                "error": html_result.get("error") or "Failed to store HTML",
+                "error_code": html_result.get("error_code", ErrorCode.UNKNOWN_ERROR.value),
+                "stage": html_result.get("stage", "html_fetch"),
+                "extraction_method": None
             }
+        
+        txt_result = retrieve_txt(
+            allow_duplicates=allow_duplicates,
+            html_id=html_id,
+            driver=driver,
+            search_link_id=search_link_id
+        )
+        
+        warning = html_result.get("warning")
+        error = None
+        error_code = None
+        extraction_method = None
+        stage = "complete"
+        success = True
+        
+        if txt_result:
+            if txt_result.get("warning"):
+                warning = txt_result["warning"]
+            extraction_method = txt_result.get("extraction_method")
+            if txt_result.get("error"):
+                error = txt_result["error"]
+                error_code = txt_result.get("error_code")
+                stage = "text_extraction"
+                success = False
+            elif not txt_result.get("success"):
+                warning = txt_result.get("warning") or "Text extraction failed"
+                error_code = txt_result.get("error_code")
+                stage = "text_extraction"
+                success = False
+        
+        return {
+            "url": url,
+            "success": success,
+            "html_id": html_id,
+            "warning": warning,
+            "error": error,
+            "error_code": error_code,
+            "stage": stage,
+            "extraction_method": extraction_method
+        }
     
     except Exception as e:
         return {
@@ -237,9 +278,6 @@ def run_pipeline(config, results_dir):
     print(f"# running pipeline, writing to results directory: {results_dir}")
     print(f"{'#'*70}\n")
     
-    PER_URL_TIMEOUT = 20
-    PDF_URL_TIMEOUT = 120
-    
     # Track pipeline start time
     pipeline_start_time = time.time()
 
@@ -252,7 +290,7 @@ def run_pipeline(config, results_dir):
         for idx, url in enumerate(URLs, 1):
             # Track per-URL timing
             url_start_time = time.time()
-            url_timeout = PDF_URL_TIMEOUT if is_pdf_url(url) else PER_URL_TIMEOUT
+            url_timeout = Timeouts.PDF_URL_TIMEOUT if is_pdf_url(url) else Timeouts.PER_URL_TIMEOUT
 
             # Run process_url in a daemon thread with a timeout so one
             # stuck URL can never block the rest of the pipeline.
@@ -502,7 +540,9 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "errors": all_errors,
         "warnings": pipeline_summary.get("warnings", [])
     }
-    
+    if pipeline_summary.get("scheduled"):
+        status_data["scheduled"] = pipeline_summary["scheduled"]
+
     if export_summary:
         for table_name, row_count in export_summary.items():
             if row_count is not None:

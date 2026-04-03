@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from mysql.connector import Error
 from dbconnection import create_connection
 from error_codes import ErrorCode
+from constants import VERSION_PRIORITY, Timeouts
 from dotenv import load_dotenv
 import os
 
@@ -17,20 +18,11 @@ congress_api_key = os.getenv("congress_api_key")
 
 
 def is_federal_reg_url(url):
-
     return "federalregister.gov/documents/" in url
 
 
 def is_congress_url(url):
     return "congress.gov/bill/" in url.lower()
-
-
-VERSION_PRIORITY = [
-    "Enrolled Bill", "Public Law", "Engrossed in House", "Engrossed in Senate",
-    "Reported to House", "Reported to Senate",
-    "Placed on Calendar Senate", "Placed on Calendar House",
-    "Introduced in House", "Introduced in Senate",
-]
 
 
 def retrieve_congress_html(url):
@@ -39,7 +31,7 @@ def retrieve_congress_html(url):
     try:
         congress_num, bill_type, bill_number = congress_extract(url.lower())
         api_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type}/{bill_number}/text?format=json&api_key={congress_api_key}"
-        response = requests.get(api_url, timeout=15)
+        response = requests.get(api_url, timeout=Timeouts.DEFAULT_REQUEST)
         if response.status_code != 200:
             print(f"Congress API returned status {response.status_code}")
             return None
@@ -70,7 +62,7 @@ def retrieve_congress_html(url):
             print(f"No Formatted Text URL found via Congress API for {url}")
             return None
 
-        htm_response = requests.get(htm_url, timeout=15)
+        htm_response = requests.get(htm_url, timeout=Timeouts.DEFAULT_REQUEST)
         if htm_response.status_code == 200:
             return htm_response.text
 
@@ -105,7 +97,7 @@ def retrieve_federal_reg_html(url):
 
     api_url = f"https://www.federalregister.gov/api/v1/documents/{doc_id}.json?fields[]=body_html_url"
     try:
-        response = requests.get(api_url, timeout=15)
+        response = requests.get(api_url, timeout=Timeouts.DEFAULT_REQUEST)
         if response.status_code != 200:
             print(f"Federal Register API returned status {response.status_code}")
             return None
@@ -116,7 +108,7 @@ def retrieve_federal_reg_html(url):
             print(f"Federal Register API did not return body_html_url for {doc_id}")
             return None
 
-        html_response = requests.get(html_url, timeout=15)
+        html_response = requests.get(html_url, timeout=Timeouts.DEFAULT_REQUEST)
         if html_response.status_code == 200:
             return html_response.text
 
@@ -128,9 +120,9 @@ def retrieve_federal_reg_html(url):
         return None
 
 
-def retrieve_html(url, timeout=15):
+def retrieve_html(url, timeout=Timeouts.DEFAULT_REQUEST):
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, timeout=timeout)
         html_content = response.text
         return html_content
     except Exception as e:
@@ -185,7 +177,7 @@ def store_html(url, allow_duplicates=False, driver=None, search_link_id=None):
     domain = urlparse(url).netloc.removeprefix("www.")
 
     from txt_storer import is_pdf_url
-    timeout = 100 if is_pdf_url(url) else 15
+    timeout = Timeouts.PDF_HTML_FETCH if is_pdf_url(url) else Timeouts.DEFAULT_REQUEST
     
     if is_congress_url(url):
         html_content = retrieve_congress_html(url)
@@ -258,39 +250,15 @@ def store_html(url, allow_duplicates=False, driver=None, search_link_id=None):
         connection.commit()
         html_id = cursor.lastrowid
 
-        from txt_storer import retreive_txt
-        txt_result = retreive_txt(allow_duplicates=allow_duplicates, html_id=html_id, driver=driver, search_link_id=search_link_id)
-
-        warning = None
-        error = None
-        error_code = None
-        extraction_method = None
-        stage = "complete"
-        failure_type = None
-        if txt_result:
-            if txt_result.get("warning"):
-                warning = txt_result["warning"]
-            extraction_method = txt_result.get("extraction_method")
-            if txt_result.get("error"):
-                error = txt_result["error"]
-                error_code = txt_result.get("error_code")
-                failure_type = error_code
-                stage = "text_extraction"
-            elif not txt_result.get("success"):
-                warning = txt_result.get("warning") or "Text extraction failed"
-                error_code = txt_result.get("error_code")
-                failure_type = error_code
-                stage = "text_extraction"
-
         processing_time = round(time.time() - start_time, 3)
         try:
-            update_query = "UPDATE leg_html SET processing_time = %s, warnings = %s, failure_type = %s WHERE search_id = %s"
-            cursor.execute(update_query, (processing_time, warning, failure_type, html_id))
+            update_query = "UPDATE leg_html SET processing_time = %s WHERE search_id = %s"
+            cursor.execute(update_query, (processing_time, html_id))
             connection.commit()
         except Error:
             pass
 
-        return {"html_id": html_id, "warning": warning, "error": error, "error_code": error_code, "stage": stage, "extraction_method": extraction_method}
+        return {"html_id": html_id, "warning": None, "error": None, "error_code": None, "stage": "html_fetch_complete"}
 
     except Error as e:
         return {"html_id": None, "warning": None, "error": f"Database error: {e}", "error_code": ErrorCode.DATABASE_ERROR.value, "stage": "html_fetch", "extraction_method": None}
@@ -301,5 +269,5 @@ def store_html(url, allow_duplicates=False, driver=None, search_link_id=None):
                 cursor.close()
             if connection and connection.is_connected():
                 connection.close()
-        except:
+        except Exception:
             pass

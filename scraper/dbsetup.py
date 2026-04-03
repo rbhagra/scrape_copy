@@ -1,7 +1,7 @@
 from mysql.connector import Error
 from dbconnection import create_connection
 import os
-from dotenv import load_dotenvpyp
+from dotenv import load_dotenv
 load_dotenv()
 pw = os.getenv("password")
 host = os.getenv("host_name")
@@ -187,6 +187,24 @@ def table_create():
                 connection.commit()
             else:
                 print("dbsetup: FK fk_leg_processed_search_link_id already exists")
+
+            # Add index on search_links.link for fast dedup lookups
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = 'search_links'
+                  AND INDEX_NAME = 'idx_search_links_link'
+                """,
+                (database,),
+            )
+            has_link_idx = cursor.fetchone()[0] > 0
+            if not has_link_idx:
+                print("dbsetup: adding index idx_search_links_link")
+                cursor.execute("CREATE INDEX idx_search_links_link ON search_links(link)")
+                connection.commit()
+         
 
             # Add leg_processed.search_term for existing DBs
             cursor.execute(

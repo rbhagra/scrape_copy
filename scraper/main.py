@@ -1,5 +1,5 @@
 from html_storer import store_html
-from txt_storer import retreive_txt
+from txt_storer import retrieve_txt
 from def_storer import store_defs
 from dbconnection import create_connection
 from mysql.connector import Error
@@ -15,18 +15,34 @@ database = os.getenv("database_name")
 #### USED FOR LOCALIZED TESTING. DO NOT RUN FOR PIPELINE EXECUTION.
 def process_new_url(url, allow_duplicates=False):
     """
-    Process a new URL through the pipeline.
+    Process a new URL through the pipeline (HTML fetch + text extraction).
     
     Args:
         url: The URL to process
         allow_duplicates: If True, allows processing duplicate URLs/text. If False, skips duplicates.
     """
     print(f"Processing new bill: {url}")
-    result = store_html(url, allow_duplicates=allow_duplicates)
-    return result
+    html_result = store_html(url, allow_duplicates=allow_duplicates)
+    
+    if html_result.get("error"):
+        print(f"HTML fetch failed: {html_result['error']}")
+        return html_result
+    
+    html_id = html_result.get("html_id")
+    if html_id is None:
+        print("Failed to get html_id from store_html")
+        return html_result
+    
+    txt_result = retrieve_txt(allow_duplicates=allow_duplicates, html_id=html_id)
+    
+    return {
+        "html_result": html_result,
+        "txt_result": txt_result,
+        "success": txt_result.get("success", False) if txt_result else False
+    }
 def process_all_unprocessed_html():
     while True:
-        result = retreive_txt()
+        result = retrieve_txt()
         if result is None:
             print("All records processed.")
             break
@@ -103,4 +119,4 @@ if __name__ == "__main__":
    # process_all_unprocessed_text() # needs to be fixed -- a lot. Definitions doesn't really work as intended.
     
     # Option 4: Process one unprocessed record
-    # retreive_txt()
+    # retrieve_txt()
