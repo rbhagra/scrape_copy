@@ -9,26 +9,9 @@
     "AI Transparency",
     "AI",
     "Ethical AI",
-    "Model Card",
     "Algorithmic Impact Assessment"
   ],
-  "Jurisdictions": {
-    "Congress": "congress.gov",
-    "Federal Register": "federalregister.gov",
-    "National Institute of Standards and Technology": "nist.gov",
-    "The White House": "whitehouse.gov",
-    "California": "leginfo.legislature.ca.gov",
-    "Texas": "capitol.texas.gov",
-    "Colorado": "leg.colorado.gov",
-    "Utah": "le.utah.gov",
-    "New York": "nyassembly.gov",
-    "Virginia": "lis.virginia.gov",
-    "Illinois": "ilga.gov",
-    "European Union Legislature": "eur-lex.europa.eu",
-    "United Kingdom": "legislation.gov.uk",
-    "Canada (Federal)": "parl.ca/legisinfo"
-  },
-  "Bill Signals / Path Hints": {
+  "Jurisdictions and signal": {
     "congress.gov": {
       "signals": ["/bill", "/xxx-congress"]
     },

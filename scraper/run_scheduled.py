@@ -6,8 +6,13 @@ retries all previously failed work, processes new URLs, and exports results.
 
 Usage:
     python run_scheduled.py --config path_to_config.json
+
+    Running list of terms and jurisdictions to search for can be found in search_params.json. 
+    This file also includes signals to look for in the URLs and this is automatically passed to the search_layer.py script. 
+    Runs via search_params format, or via a run_pipeline config file, depending on what is passed in.
 """
 import argparse
+import json
 import os
 import sys
 from dotenv import load_dotenv
@@ -44,6 +49,74 @@ def parse_args():
         help="Path to the JSON configuration file",
     )
     return parser.parse_args()
+
+
+def load_scheduled_config(config_path):
+    """Load either pipeline config format or search_params.json format."""
+    with open(config_path, "r") as f:
+        raw_config = json.load(f)
+
+    # If this is already a run_pipeline config, just return through validator
+    if "searches" in raw_config:
+        return validate_config(config_path)
+
+    # else, we use the search_params format which is shaped as below:
+    # Support search_params.json format:
+    # {
+    #   "Terms": [...],
+    #   "Jurisdictions and signal": {
+    #       "domain": {"signals": [...]}
+    #   }
+    # }
+    terms = raw_config.get("Terms")
+    jurisdictions = raw_config.get("Jurisdictions and signal")
+
+    if not isinstance(terms, list) or not terms:
+        raise ValueError("search_params config must contain non-empty 'Terms' list")
+    if not isinstance(jurisdictions, dict) or not jurisdictions:
+        raise ValueError(
+            "search_params config must contain non-empty 'Jurisdictions and signal' object"
+        )
+
+    searches = []
+    for term in terms:
+        if not isinstance(term, str) or not term.strip():
+            continue
+        clean_term = term.strip()
+
+        for domain, domain_config in jurisdictions.items():
+            if not isinstance(domain, str) or not domain.strip():
+                continue
+            clean_domain = domain.strip()
+            domain_config = domain_config if isinstance(domain_config, dict) else {}
+            signals = domain_config.get("signals", [])
+
+            # If no signals, run one plain site search.
+            if not isinstance(signals, list) or not signals:
+                searches.append({"term": clean_term, "domain": clean_domain})
+                continue
+
+            added_signal = False
+            for signal in signals:
+                if isinstance(signal, str) and signal.strip():
+                    searches.append({
+                        "term": clean_term,
+                        "domain": clean_domain,
+                        "inurl": signal.strip(),
+                    })
+                    added_signal = True
+
+            # Fallback to plain search if signals list had no usable values.
+            if not added_signal:
+                searches.append({"term": clean_term, "domain": clean_domain})
+
+    if not searches:
+        raise ValueError("No valid search entries were generated from search_params config")
+
+    return {
+        "settings": raw_config.get("settings", {}),
+        "searches": searches,
+    }
 
 
 def retry_text_extractions(failed_text_rows):
@@ -112,7 +185,7 @@ def prepare_retries(url_to_search_link_id):
 
 
 def run_incremental_search(config):
-    """Run search discovery and return its discovery payload."""
+    """Run search discovery"""
     from search_layer import discover_urls
     return with_connection(lambda conn: discover_urls(config["searches"], conn, incremental=True))
 
@@ -191,7 +264,7 @@ def write_status(results_dir, pipeline_summary, url_to_search_link_id):
 
 def main():
     try:
-        config = validate_config(parse_args().config)
+        config = load_scheduled_config(parse_args().config)
         results_dir = add_timestamp_results_directory()
         discovery = run_incremental_search(config)
         url_to_search_link_id = discovery.get("url_to_search_link_id", {})
