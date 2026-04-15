@@ -7,9 +7,9 @@ retries all previously failed work, processes new URLs, and exports results.
 Usage:
     python run_scheduled.py --config path_to_config.json
 
-    Running list of terms and jurisdictions to search for can be found in search_params.json. 
-    This file also includes signals to look for in the URLs and this is automatically passed to the search_layer.py script. 
-    Runs via search_params format, or via a run_pipeline config file, depending on what is passed in.
+Config input supports either:
+    - run_pipeline format (contains "searches"), or
+    - search_params format (Terms + Jurisdictions/signals).
 """
 import argparse
 import json
@@ -37,10 +37,11 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+SEARCH_PARAMS_JURISDICTIONS_KEY = "Jurisdictions and signal"
 
 
 def parse_args():
-    ### parses the command line arguments
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Scheduled/resumable pipeline: incremental search + retry failures"
     )
@@ -61,6 +62,7 @@ def load_scheduled_config(config_path):
         return validate_config(config_path)
 
     # else, we use the search_params format which is shaped as below:
+    # else, we use the search_params format which is shaped as below:
     # Support search_params.json format:
     # {
     #   "Terms": [...],
@@ -69,13 +71,13 @@ def load_scheduled_config(config_path):
     #   }
     # }
     terms = raw_config.get("Terms")
-    jurisdictions = raw_config.get("Jurisdictions and signal")
+    jurisdictions = raw_config.get(SEARCH_PARAMS_JURISDICTIONS_KEY)
 
     if not isinstance(terms, list) or not terms:
         raise ValueError("search_params config must contain non-empty 'Terms' list")
     if not isinstance(jurisdictions, dict) or not jurisdictions:
         raise ValueError(
-            "search_params config must contain non-empty 'Jurisdictions and signal' object"
+            f"search_params config must contain non-empty '{SEARCH_PARAMS_JURISDICTIONS_KEY}' object"
         )
 
     searches = []
@@ -185,7 +187,7 @@ def prepare_retries(url_to_search_link_id):
 
 
 def run_incremental_search(config):
-    """Run search discovery"""
+    """Run search discovery."""
     from search_layer import discover_urls
     return with_connection(lambda conn: discover_urls(config["searches"], conn, incremental=True))
 

@@ -13,11 +13,17 @@ Process for running pipeline
     - `settings`: object with pipeline settings (e.g. min_bill_text_length)
   - Save your config file anywhere accessible in project root
 
+- ALTERNATE 2: Run pipeline via a chron job and the run_scheduled function 
+
+  - Use standard list of juridstictions & terms in search_params 
+  - This is a comprehensive list of high-target-value sites and terms.
+  - This search is conducted with baseline settings 
+
 -3 ensure all libraries and dependencies are installed 
 
 - 4 Run the pipeline**
   - From the project root run:
-    - `python run_pipeline.py --config path/to/your_config.json
+    - `python run.scheduled_py --config path/to/your_config.json
   - script does the following:
     - validates the config
     - creates a timestamped results directory under `results/bills/<YYYYMMDD_HHMMSS>/`

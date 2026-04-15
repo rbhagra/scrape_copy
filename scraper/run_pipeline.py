@@ -33,6 +33,7 @@ database = os.getenv("database_name")
 PROJECT_ROOT = Path(__file__).parent
 RESULTS_DIR = PROJECT_ROOT / "results" / "bills"
 
+
 def add_timestamp_results_directory():
     """
     Ensure the results directory exists with timestamp, adds timestamp if needed to avoid overwrite
@@ -47,11 +48,11 @@ def add_timestamp_results_directory():
 
 
 def parse_args():
-     # parse command line args
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Runs the pipeline with search terms (SERP API)"
     )
-    # provides path to json config file
+    # Path to JSON config file
     parser.add_argument(
         "--config",
         type=str,
@@ -251,7 +252,7 @@ def process_url(url, driver=None, search_link_id=None):
 
 def run_pipeline(config, results_dir):
     """
-    Run the pipeline for all URLs in config
+    Run the pipeline for all URLs in config.
     
     Args:
         config: Configuration dictionary
@@ -357,7 +358,7 @@ def run_pipeline(config, results_dir):
         "max_url_seconds": round(max(url_timings), 2) if url_timings else 0
     }
     
-    # summary of pipleine execution
+    # Summary of pipeline execution
     summary = {
         "total_URLs": len(URLs),
         "successful_URLs": successful_URLs,
@@ -406,20 +407,20 @@ def run_pipeline(config, results_dir):
 
 def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
     """
-    Exports db tables to csv, filtered by html_ids from this run
+    Export DB tables to CSV, filtered by IDs from this run.
     
     Args:
         results_dir: Directory to save CSV files
-        html_ids: List of html IDs to export (only bills from this run - can change if want all)
-        search_link_ids: Optional list of search_links.id values to export (only SERP accepted links from this run)
+        html_ids: List of HTML IDs to export (records from this run).
+        search_link_ids: Optional list of search_links.id values to export.
     
     Returns:
         dict: Export summary with row counts
     """
-    
+    connection = None
     try:
         connection = create_connection(host, user, pw, database)
-        # checks conneciton to db
+        # Check DB connection
         if connection is None:
             print("Failed to connect to database for export")
             return None
@@ -430,14 +431,13 @@ def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
             html_ids=html_ids,
             search_link_ids=search_link_ids,
         )
-        
-        if connection.is_connected():
-            connection.close()
         return exports
-    
     except Exception as e:
         print(f"Error during CSV export: {e}")
         return None
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
 
 
 def write_status_json(results_dir, pipeline_summary, export_summary, export_error=None):
@@ -497,7 +497,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "complete": pipeline_summary["successful_URLs"]
     }
 
-    # search discovery section for status file 
+    # Search discovery section for status file
     discovery = pipeline_summary.get("search_discovery")
     search_discovery_section = None
     if discovery:
@@ -556,7 +556,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
 
 
 def main():
-    # for main execution
+    """CLI entrypoint."""
     try:
         args = parse_args()
 
