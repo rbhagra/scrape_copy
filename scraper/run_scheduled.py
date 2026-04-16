@@ -37,7 +37,9 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+## key for search params. Keep this incase exact phrasing changes
 SEARCH_PARAMS_JURISDICTIONS_KEY = "Jurisdictions and signal"
+
 
 
 def parse_args():

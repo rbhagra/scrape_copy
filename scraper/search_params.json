@@ -13,7 +13,7 @@
   ],
   "Jurisdictions and signal": {
     "congress.gov": {
-      "signals": ["/bill", "/xxx-congress"]
+      "signals": ["/bill"]
     },
     "federalregister.gov": {},
     "leginfo.legislature.ca.gov": {

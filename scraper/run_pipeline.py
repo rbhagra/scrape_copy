@@ -21,7 +21,7 @@ from export_utils import export_all_tables, compute_domain_metrics
 from error_codes import ErrorCode
 from constants import Timeouts
 from txt_storer import is_pdf_url, retrieve_txt
-from selenium import webdriver
+from driver_utils import ensure_firefox_driver
 
 # Load environment variables
 load_dotenv()
@@ -32,7 +32,6 @@ database = os.getenv("database_name")
 
 PROJECT_ROOT = Path(__file__).parent
 RESULTS_DIR = PROJECT_ROOT / "results" / "bills"
-
 
 def add_timestamp_results_directory():
     """
@@ -48,11 +47,11 @@ def add_timestamp_results_directory():
 
 
 def parse_args():
-    """Parse command line arguments."""
+     # parse command line args
     parser = argparse.ArgumentParser(
         description="Runs the pipeline with search terms (SERP API)"
     )
-    # Path to JSON config file
+    # provides path to json config file
     parser.add_argument(
         "--config",
         type=str,
@@ -252,7 +251,7 @@ def process_url(url, driver=None, search_link_id=None):
 
 def run_pipeline(config, results_dir):
     """
-    Run the pipeline for all URLs in config.
+    Run the pipeline for all URLs in config
     
     Args:
         config: Configuration dictionary
@@ -280,10 +279,11 @@ def run_pipeline(config, results_dir):
     # Create a single shared browser instance for all URLs
     driver = None
     try:
-        
-        driver = webdriver.Firefox()
-        
+        driver = ensure_firefox_driver(None)
+
         for idx, url in enumerate(URLs, 1):
+            driver = ensure_firefox_driver(driver)
+
             # Track per-URL timing
             url_start_time = time.time()
             url_timeout = Timeouts.PDF_URL_TIMEOUT if is_pdf_url(url) else Timeouts.PER_URL_TIMEOUT
@@ -311,12 +311,12 @@ def run_pipeline(config, results_dir):
                     "extraction_method": None
                 }
                
-                # kill stuck browser 
+                # kill stuck browser
                 try:
                     driver.quit()
                 except Exception:
                     pass
-                driver = webdriver.Firefox()
+                driver = ensure_firefox_driver(None)
             else:
                 result = result_holder[0]
 
@@ -337,9 +337,11 @@ def run_pipeline(config, results_dir):
                 error_msg = f"Failed to process {url}: {result['error']}"
                 errors.append(error_msg)
     finally:
-        # Close the shared browser when done with all URLs
         if driver:
-            driver.quit()
+            try:
+                driver.quit()
+            except Exception:
+                pass
     
     # Calculate total pipeline duration
     pipeline_duration = time.time() - pipeline_start_time
@@ -358,7 +360,7 @@ def run_pipeline(config, results_dir):
         "max_url_seconds": round(max(url_timings), 2) if url_timings else 0
     }
     
-    # Summary of pipeline execution
+    # summary of pipleine execution
     summary = {
         "total_URLs": len(URLs),
         "successful_URLs": successful_URLs,
@@ -407,20 +409,20 @@ def run_pipeline(config, results_dir):
 
 def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
     """
-    Export DB tables to CSV, filtered by IDs from this run.
+    Exports db tables to csv, filtered by html_ids from this run
     
     Args:
         results_dir: Directory to save CSV files
-        html_ids: List of HTML IDs to export (records from this run).
-        search_link_ids: Optional list of search_links.id values to export.
+        html_ids: List of html IDs to export (only bills from this run - can change if want all)
+        search_link_ids: Optional list of search_links.id values to export (only SERP accepted links from this run)
     
     Returns:
         dict: Export summary with row counts
     """
-    connection = None
+    
     try:
         connection = create_connection(host, user, pw, database)
-        # Check DB connection
+        # checks conneciton to db
         if connection is None:
             print("Failed to connect to database for export")
             return None
@@ -431,13 +433,14 @@ def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
             html_ids=html_ids,
             search_link_ids=search_link_ids,
         )
+        
+        if connection.is_connected():
+            connection.close()
         return exports
+    
     except Exception as e:
         print(f"Error during CSV export: {e}")
         return None
-    finally:
-        if connection and connection.is_connected():
-            connection.close()
 
 
 def write_status_json(results_dir, pipeline_summary, export_summary, export_error=None):
@@ -497,7 +500,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
         "complete": pipeline_summary["successful_URLs"]
     }
 
-    # Search discovery section for status file
+    # search discovery section for status file 
     discovery = pipeline_summary.get("search_discovery")
     search_discovery_section = None
     if discovery:
@@ -556,7 +559,7 @@ def write_status_json(results_dir, pipeline_summary, export_summary, export_erro
 
 
 def main():
-    """CLI entrypoint."""
+    # for main execution
     try:
         args = parse_args()
 

@@ -1,7 +1,7 @@
 from mysql.connector import Error
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
-from error_codes import ErrorCode
+from error_codes import ErrorCode, ERROR_DESCRIPTIONS
 from constants import VERSION_PRIORITY, Timeouts, MIN_BILL_TEXT_LENGTH, PDF_UNKNOWN_CHAR_THRESHOLD
 import os
 import io
@@ -78,14 +78,30 @@ def remove_empty_lines(text):
     return '\n'.join(cleaned_lines)
 
 
+def _stripped_extracted_length(text):
+    """Length of stripped extracted text;."""
+    if text is None:
+        return 0
+    return len(text.strip())
+
+
+def _text_meets_minimum_length(text):
+    """Shared minimum-length gate for any stored successful extraction."""
+    return _stripped_extracted_length(text) >= MIN_BILL_TEXT_LENGTH
+
+
+def _pdf_replacement_ratio_ok(text):
+    """True if replacement-character ratio is acceptable (non-empty stripped text)."""
+    if not text or not text.strip():
+        return False
+    stripped = text.strip()
+    replacement_count = stripped.count(chr(0xFFFD))
+    return replacement_count / len(stripped) <= PDF_UNKNOWN_CHAR_THRESHOLD
+
+
 def pdf_quality_check(text):
-    """Determines if extraction was successful via length and ratio of unknown chars."""
-    if not text or len(text.strip()) < MIN_BILL_TEXT_LENGTH:
-        return False
-    replacement_count = text.count(chr(0xFFFD))
-    if replacement_count / len(text) > PDF_UNKNOWN_CHAR_THRESHOLD:
-        return False
-    return True
+    """True if PDF-derived text is long enough and not mostly replacement characters (routing / fallback)."""
+    return _text_meets_minimum_length(text) and _pdf_replacement_ratio_ok(text)
 
 
 def extract_text_from_pdf_adobe(pdf_bytes):
@@ -279,7 +295,7 @@ def is_dynamically_loaded(raw_content, soup):
         text_length = len(body_text)
         
         # If HTML is large but text is small, content is probably loaded dynamically
-        if html_length > 4000 and text_length < MIN_BILL_TEXT_LENGTH:
+        if html_length > 4000 and not _text_meets_minimum_length(body_text):
             return True
     
     return False
@@ -386,11 +402,11 @@ def fetch_with_selenium(source_url, driver=None): #general selenium function for
                 continue
         
         # full body text if not found in container
-        if len(bill_text) < MIN_BILL_TEXT_LENGTH:
+        if not _text_meets_minimum_length(bill_text):
             bill_text = driver.find_element(By.TAG_NAME, "body").text
 
         # Iframe fallback: if main page still has little content, look inside iframes
-        if len(bill_text) < MIN_BILL_TEXT_LENGTH:
+        if not _text_meets_minimum_length(bill_text):
             iframes = driver.find_elements(By.TAG_NAME, "iframe")
             for iframe in iframes:
                 try:
@@ -485,6 +501,16 @@ def _store_failure_result(ctx, failure_type, *, method=None, error=None, warning
 
 
 def _store_success_result(ctx, clean_text, method, *, warning=None, extraction_method=None):
+    if not _text_meets_minimum_length(clean_text):
+        ctx.num_failures += 1
+        return _store_failure_result(
+            ctx,
+            ErrorCode.INSUFFICIENT_TEXT.value,
+            method=method,
+            error=ERROR_DESCRIPTIONS[ErrorCode.INSUFFICIENT_TEXT],
+            warning=warning,
+            extraction_method=extraction_method or method,
+        )
     processing_time = _processing_time(ctx)
     processed_id = store_txt(
         ctx.connection,
@@ -549,7 +575,7 @@ def _handle_pdf_url(ctx):
     pdf_text = extract_text_from_pdf(ctx.source_url)
     
     if pdf_text and len(pdf_text.strip()) > 0:
-        if not pdf_quality_check(pdf_text):
+        if not _pdf_replacement_ratio_ok(pdf_text):
             ctx.num_failures += 1
             return _store_failure_result(
                 ctx,
@@ -557,7 +583,7 @@ def _handle_pdf_url(ctx):
                 method="pdf",
                 error="PDF could not be parsed correctly with any method",
             )
-        
+
         return _store_success_result(ctx, pdf_text, "pdf")
     
     ctx.num_failures += 1
@@ -571,7 +597,7 @@ def _handle_embedded_pdf(ctx, embedded_url):
     pdf_text = extract_text_from_pdf(embedded_url)
     
     if pdf_text and len(pdf_text.strip()) > 0:
-        if not pdf_quality_check(pdf_text):
+        if not _pdf_replacement_ratio_ok(pdf_text):
             ctx.num_failures += 1
             return _store_failure_result(
                 ctx,
@@ -579,7 +605,7 @@ def _handle_embedded_pdf(ctx, embedded_url):
                 method="embedded_pdf",
                 error="PDF could not be parsed correctly with any method",
             )
-        
+
         return _store_success_result(
             ctx,
             pdf_text,
@@ -603,7 +629,7 @@ def _handle_embedded_document(ctx, embedded_url):
             junk.decompose()
         embed_text = embed_soup.get_text(separator=" ", strip=True)
         
-        if len(embed_text) >= MIN_BILL_TEXT_LENGTH:
+        if _text_meets_minimum_length(embed_text):
             return _store_success_result(
                 ctx,
                 embed_text,
@@ -636,7 +662,7 @@ def _handle_congress_api(ctx):
             if htm_response.status_code == 200:
                 soup = BeautifulSoup(htm_response.text, "html.parser")
                 htm_text = soup.get_text(separator="\n", strip=True)
-                if htm_text and len(htm_text.strip()) > 0:
+                if htm_text is not None and htm_text.strip():
                     return _store_success_result(ctx, htm_text, "Congress.gov API (HTM)")
                 ctx.num_failures += 1
                 ctx.warning = f"HTM/API extraction failed for {ctx.source_url}, falling back to selenium"
@@ -740,24 +766,15 @@ def _handle_federal_register(ctx):
         )
     
     body_text = text_response.text
-    if len(body_text) >= MIN_BILL_TEXT_LENGTH:
-        start_index = body_text.find("<html>")
-        end_index = body_text.find("</html>")
-        if start_index != -1 and end_index != -1:
-            body_text = body_text[start_index:end_index]
-        return _store_success_result(
-            ctx,
-            body_text,
-            "Federal Register API",
-            warning=ctx.warning,
-        )
-    
-    ctx.num_failures += 1
-    return _store_failure_result(
+    start_index = body_text.find("<html>")
+    end_index = body_text.find("</html>")
+    if start_index != -1 and end_index != -1:
+        body_text = body_text[start_index:end_index]
+    return _store_success_result(
         ctx,
-        ErrorCode.INSUFFICIENT_TEXT.value,
-        method="Federal Register API",
-        warning="Federal Register body had insufficient text",
+        body_text,
+        "Federal Register API",
+        warning=ctx.warning,
     )
 
 
@@ -771,7 +788,7 @@ def _handle_generic_url(ctx, soup, driver=None):
     cleaned_text = soup.get_text(separator=" ", strip=True)
     
     needs_selenium = is_dynamically_loaded(ctx.raw_content, soup_copy)
-    if len(cleaned_text) < MIN_BILL_TEXT_LENGTH:
+    if not _text_meets_minimum_length(cleaned_text):
         needs_selenium = True
     
     extraction_method = "beautifulsoup"
@@ -805,7 +822,7 @@ def _handle_generic_url(ctx, soup, driver=None):
         if bill_start_index != -1:
             cleaned_text = cleaned_text[bill_start_index:]
     
-    if is_pdf_url(ctx.source_url) and not pdf_quality_check(cleaned_text):
+    if is_pdf_url(ctx.source_url) and not _pdf_replacement_ratio_ok(cleaned_text):
         ctx.num_failures += 1
         return _store_failure_result(
             ctx,
@@ -916,6 +933,41 @@ def retrieve_txt(html_id=None, driver=None, search_link_id=None):
         except Exception:
             pass
 
+
+def _resolve_search_link_fk(cursor, search_link_id, source_url):
+    """Return (search_link_id, search_term) safe for leg_processed FK on this connection.
+
+    Validates the id against search_links on the same connection as the INSERT (avoids
+    stale IDs from rolled-back discovery or mismatched sessions). If the id is missing,
+    falls back to a successful search_links row matching source_url.
+    """
+    sid = None
+    if search_link_id is not None:
+        try:
+            sid = int(search_link_id)
+        except (TypeError, ValueError):
+            sid = None
+    if sid is not None:
+        cursor.execute(
+            "SELECT id, keyword_search FROM search_links WHERE id = %s",
+            (sid,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return int(row[0]), row[1]
+    if source_url:
+        cursor.execute(
+            """SELECT id, keyword_search FROM search_links
+               WHERE link = %s AND is_successful = 1
+               ORDER BY id DESC LIMIT 1""",
+            (source_url,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return int(row[0]), row[1]
+    return None, None
+
+
 def store_txt(connection, raw_id, clean_text, source_url=None,
               domain=None, num_tries=0, num_failures=0, failure_type=None,
               warnings_text=None, text_processing_method=None, processing_time=None,
@@ -923,18 +975,10 @@ def store_txt(connection, raw_id, clean_text, source_url=None,
     try: 
         cursor = connection.cursor()
 
-        # If we have the search_link_id, fetch the originating search query text.
-        #  lets us  join leg_processed -> search_links and export search_term.
-        search_term = None
-        if search_link_id is not None:
-            cursor.execute(
-                "SELECT keyword_search FROM search_links WHERE id = %s",
-                (search_link_id,),
-            )
-            row = cursor.fetchone()
-            if row:
-                search_term = row[0]
-        
+        search_link_id, search_term = _resolve_search_link_fk(
+            cursor, search_link_id, source_url
+        )
+
         insert_query = """INSERT INTO leg_processed 
             (raw_doc_id, source_url, clean_text, domain, num_tries_text_processing, 
              num_failures_text_processing, failure_type, warnings, text_processing_method, 

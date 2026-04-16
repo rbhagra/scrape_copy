@@ -214,26 +214,43 @@ def discover_urls(searches, connection, incremental=False):
 
             entry_new = 0
             for link in raw_links:
-                if incremental:
-                    cursor.execute(
-                        "SELECT id FROM search_links WHERE link = %s LIMIT 1",
-                        (link,),
-                    )
-                    existing = cursor.fetchone()
-                    if existing:
-                        continue
+                try:
+                    if incremental:
+                        cursor.execute(
+                            "SELECT id FROM search_links WHERE link = %s LIMIT 1",
+                            (link,),
+                        )
+                        existing = cursor.fetchone()
+                        if existing:
+                            continue
 
-                link_id = _record_link(
-                    cursor, "SERPAPI", query, None, link,
-                    processing_time=api_duration,
-                    num_api_tries=serp["num_tries"],
-                    num_api_failures=serp["num_failures"],
-                    is_successful=1,
-                )
-                if link not in all_urls:
-                    url_to_search_link_id[link] = link_id
-                all_urls.add(link)
-                entry_new += 1
+                    link_id = _record_link(
+                        cursor, "SERPAPI", query, None, link,
+                        processing_time=api_duration,
+                        num_api_tries=serp["num_tries"],
+                        num_api_failures=serp["num_failures"],
+                        is_successful=1,
+                    )
+                    if link not in all_urls:
+                        url_to_search_link_id[link] = link_id
+                    all_urls.add(link)
+                    entry_new += 1
+                    connection.commit()
+                except Error as e:
+                    try:
+                        connection.rollback()
+                    except Exception:
+                        pass
+                    link_str = link if isinstance(link, str) else str(link)
+                    snippet = (
+                        (link_str[:200] + "…")
+                        if len(link_str) > 200
+                        else link_str
+                    )
+                    msg = f"Skipping discovered URL (database): {e} link={snippet!r}"
+                    all_warnings.append(msg)
+                    print(f"    WARNING: {msg}")
+                    continue
 
             if incremental:
                 print(f"    {entry_new} new results")
@@ -254,12 +271,25 @@ def discover_urls(searches, connection, incremental=False):
                 "error_code": None,
             })
 
-        connection.commit()
+        try:
+            connection.commit()
+        except Error as e:
+            err_msg = f"Database error committing search discovery: {e}"
+            print(f"  {err_msg}")
+            all_errors.append(err_msg)
+            try:
+                connection.rollback()
+            except Exception:
+                pass
 
     except Error as e:
         err_msg = f"Database error during search discovery: {e}"
         print(f"  {err_msg}")
         all_errors.append(err_msg)
+        try:
+            connection.rollback()
+        except Exception:
+            pass
     finally:
         if cursor:
             try:
