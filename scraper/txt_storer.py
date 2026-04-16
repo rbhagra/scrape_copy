@@ -175,8 +175,10 @@ def extract_text_from_pdf(url):
         print(f"PyMuPDF extraction failed for {url}: {e}, trying Adobe fallback")
 
     adobe_text = extract_text_from_pdf_adobe(pdf_raw)
-    if adobe_text and len(adobe_text.strip()) > 0:
+    if adobe_text and pdf_quality_check(adobe_text):
         return adobe_text
+    if adobe_text and adobe_text.strip():
+        print(f"Adobe PDF extraction produced poor quality text for {url}, discarding")
 
     return None
 

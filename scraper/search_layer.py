@@ -161,7 +161,8 @@ def discover_urls(searches, connection, incremental=False):
             term = entry["term"]
             domain = entry["domain"]
             inurl = entry.get("inurl")
-            max_results = entry.get("max_results", 10)
+            from constants import MAXIMUM_RESULTS
+            max_results = entry.get("max_results", MAXIMUM_RESULTS)
 
             query = _build_query(term, domain, inurl)
 

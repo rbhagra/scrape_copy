@@ -101,7 +101,7 @@ def table_create():
                         search_method VARCHAR(100) NOT NULL,
                         keyword_search VARCHAR(1000) NOT NULL,
                         other_filters VARCHAR(1000),
-                        link VARCHAR(500) NOT NULL,
+                        link VARCHAR(748) NOT NULL,
                         processing_time DECIMAL(10,3),
                         num_api_tries INT DEFAULT 0,
                         num_api_failures INT DEFAULT 0,

@@ -34,4 +34,6 @@ class Timeouts:
 
 # Text extraction thresholds
 MIN_BILL_TEXT_LENGTH = 500
-PDF_UNKNOWN_CHAR_THRESHOLD = 0.3
+PDF_UNKNOWN_CHAR_THRESHOLD = 0.2
+MAXIMUM_RESULTS = 10
+# max amount of results per SERPAPI call 
