@@ -22,7 +22,9 @@ def is_federal_reg_url(url):
 
 
 def is_congress_url(url):
-    return "congress.gov/bill/" in url.lower()
+    # Bill pages may be /bill/... or /index.php/bill/... (same site, different path prefix).
+    u = url.lower()
+    return "congress.gov" in u and "/bill/" in u
 
 
 def retrieve_congress_html(url):
