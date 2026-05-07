@@ -59,11 +59,10 @@ def load_scheduled_config(config_path):
     with open(config_path, "r") as f:
         raw_config = json.load(f)
 
-    # If this is already a run_pipeline config, just return through validator
+    # If this is already a run_pipeline style config, just return through validator
     if "searches" in raw_config:
         return validate_config(config_path)
 
-    # else, we use the search_params format which is shaped as below:
     # else, we use the search_params format which is shaped as below:
     # Support search_params.json format:
     # {
@@ -117,8 +116,11 @@ def load_scheduled_config(config_path):
     if not searches:
         raise ValueError("No valid search entries were generated from search_params config")
 
+    # Extract settings (supporting both "settings" and "Settings" keys)
+    settings = raw_config.get("settings", raw_config.get("Settings", {}))
+
     return {
-        "settings": raw_config.get("settings", {}),
+        "settings": settings,
         "searches": searches,
     }
 
@@ -191,7 +193,8 @@ def prepare_retries(url_to_search_link_id):
 def run_incremental_search(config):
     """Run search discovery."""
     from search_layer import discover_urls
-    return with_connection(lambda conn: discover_urls(config["searches"], conn, incremental=True))
+    settings = config.get("settings", {})
+    return with_connection(lambda conn: discover_urls(config["searches"], conn, incremental=True, settings=settings))
 
 
 def run_retry_pipeline(config, results_dir, discovery, retry_html_urls, url_to_search_link_id):

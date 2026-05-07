@@ -125,7 +125,8 @@ def load_config(config_path):
         print(f"\n{'#'*70}")
         print(f"  SEARCH DISCOVERY STAGE")
         print(f"{'#'*70}\n")
-        discovery = discover_urls(config["searches"], connection)
+        settings = config.get("settings", {})
+        discovery = discover_urls(config["searches"], connection, settings=settings)
     finally:
         if connection and connection.is_connected():
             connection.close()

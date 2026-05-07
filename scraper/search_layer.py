@@ -5,6 +5,8 @@ and records each discovered link in the search_links table.
 import os
 import time
 import importlib
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from mysql.connector import Error
 from dotenv import load_dotenv
 from error_codes import ErrorCode
@@ -13,11 +15,55 @@ load_dotenv()
 serp_api_key = os.getenv("serp_api_key")
 
 
-def _build_query(term, domain, inurl=None):
-    """Build a Google query string from a search term, domain, and optional inurl filter."""
+def split_date_range_monthly(start_date_str, end_date_str):
+    """
+    Split a date range into monthly increments.
+    
+    Args:
+        start_date_str: Start date in YYYY-MM-DD format
+        end_date_str: End date in YYYY-MM-DD format
+    
+    Returns:
+        List of tuples (month_start, month_end) as datetime objects
+    """
+    start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+    end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+    
+    date_ranges = []
+    current_start = start_date
+    
+    while current_start <= end_date:
+        # Calculate the end of the current month
+        next_month_start = current_start + relativedelta(months=1)
+        # Set to the first of next month, then subtract a day to get last day of current month
+        month_end = min(next_month_start - timedelta(days=1), end_date)
+        
+        date_ranges.append((current_start, month_end))
+        current_start = next_month_start
+    
+    return date_ranges
+
+
+def _build_query(term, domain, inurl=None, start_date=None, end_date=None):
+    """
+    Build a Google query string from a search term, domain, optional inurl filter,
+    and optional date range using after:/before: operators.
+    
+    Args:
+        term: Search term
+        domain: Domain to restrict search to
+        inurl: Optional URL path filter
+        start_date: Optional start date (datetime object)
+        end_date: Optional end date (datetime object)
+    
+    Returns:
+        Query string like: "term" site:domain after:2025-01-01 before:2025-01-31
+    """
     query = f'"{term}" site:{domain}'
     if inurl:
         query += f" inurl:{inurl}"
+    if start_date and end_date:
+        query += f" after:{start_date.strftime('%Y-%m-%d')} before:{end_date.strftime('%Y-%m-%d')}"
     return query
 
 
@@ -26,6 +72,11 @@ def _build_query(term, domain, inurl=None):
 def _search_serp_api(query, max_results, max_retries=2):
     """
     Call SERP API with retry logic and return a structured result dict.
+
+    Args:
+        query: Search query string (may include after:/before: date operators)
+        max_results: Maximum number of results to return
+        max_retries: Number of retry attempts on failure
 
     Returns:
         dict with keys: results, num_tries, num_failures, error, error_code, duration
@@ -45,20 +96,22 @@ def _search_serp_api(query, max_results, max_retries=2):
     num_failures = 0
     last_error = None
 
+    search_params = {
+        "engine": "google",
+        "q": query,
+        "num": max_results,
+        "location": "United States",
+        "google_domain": "google.com",
+        "hl": "en",
+        "gl": "us",
+    }
+
     for attempt in range(1 + max_retries):
         num_tries += 1
         try:
             serpapi = importlib.import_module("serpapi")
             client = serpapi.Client(api_key=serp_api_key)
-            raw = client.search({
-                "engine": "google",
-                "q": query,
-                "num": max_results,
-                "location": "United States",
-                "google_domain": "google.com",
-                "hl": "en",
-                "gl": "us",
-            })
+            raw = client.search(search_params)
 
             if raw is None:
                 num_failures += 1
@@ -123,7 +176,7 @@ def _record_link(cursor, search_method, keyword_search, other_filters, link,
     return cursor.lastrowid
 
 
-def discover_urls(searches, connection, incremental=False):
+def discover_urls(searches, connection, incremental=False, settings=None):
     """
     For each search entry, query SERP API, record results in search_links,
     and return a structured discovery report.
@@ -133,6 +186,8 @@ def discover_urls(searches, connection, incremental=False):
             term, domain, inurl (optional), max_results (optional)
         incremental: if True, skip URLs already present in search_links
             (used by scheduled runs to avoid re-recording known URLs)
+        settings: optional dict with date range settings:
+            "Start Date" and "End Date" in YYYY-MM-DD format
 
     Returns:
         dict with keys:
@@ -152,6 +207,24 @@ def discover_urls(searches, connection, incremental=False):
     all_errors = []
     all_warnings = []
     search_durations = []
+    
+    # Extract date range settings
+    settings = settings or {}
+    start_date_str = settings.get("Start Date")
+    end_date_str = settings.get("End Date")
+    
+    # Split date range into monthly increments if both dates are provided
+    date_ranges = []
+    if start_date_str and end_date_str:
+        try:
+            date_ranges = split_date_range_monthly(start_date_str, end_date_str)
+            print(f"  Date range {start_date_str} to {end_date_str} split into {len(date_ranges)} monthly searches")
+        except ValueError as e:
+            all_warnings.append(f"Invalid date format in settings: {e}. Searching without date filter.")
+            date_ranges = [(None, None)]
+    else:
+        # No date filtering - single search with no date range
+        date_ranges = [(None, None)]
 
     cursor = None
     try:
@@ -163,114 +236,117 @@ def discover_urls(searches, connection, incremental=False):
             inurl = entry.get("inurl")
             from constants import MAXIMUM_RESULTS
             max_results = entry.get("max_results", MAXIMUM_RESULTS)
+            
+            # Run a search for each monthly date range
+            for month_start, month_end in date_ranges:
+                # Build query with date range included using after:/before: operators
+                query = _build_query(term, domain, inurl, start_date=month_start, end_date=month_end)
 
-            query = _build_query(term, domain, inurl)
+                entry_start = time.time()
+                print(f"  Searching: {query}  (max {max_results} results)")
 
-            entry_start = time.time()
-            print(f"  Searching: {query}  (max {max_results} results)")
+                serp = _search_serp_api(query, max_results)
+                api_duration = serp["duration"]
 
-            serp = _search_serp_api(query, max_results)
-            api_duration = serp["duration"]
+                entry_error = serp["error"]
+                entry_error_code = serp["error_code"]
 
-            entry_error = serp["error"]
-            entry_error_code = serp["error_code"]
-
-            if entry_error:
-                print(f"    ERROR: {entry_error}")
-                all_errors.append(f"{query}: {entry_error}")
-                search_results.append({
-                    "query": query,
-                    "domain": domain,
-                    "duration_seconds": round(time.time() - entry_start, 3),
-                    "num_tries": serp["num_tries"],
-                    "num_failures": serp["num_failures"],
-                    "results_count": 0,
-                    "error": entry_error,
-                    "error_code": entry_error_code,
-                })
-                search_durations.append(time.time() - entry_start)
-                continue
-
-            results_dict = serp["results"]
-            organic = results_dict.get("organic_results", []) if isinstance(results_dict, dict) else []
-            raw_links = [r.get("link") for r in organic if r.get("link")]
-
-            if not raw_links:
-                entry_error = f"No organic results for query: {query}"
-                entry_error_code = ErrorCode.SEARCH_NO_RESULTS.value
-                print(f"    WARNING: {entry_error}")
-                all_warnings.append(entry_error)
-                search_results.append({
-                    "query": query,
-                    "domain": domain,
-                    "duration_seconds": round(time.time() - entry_start, 3),
-                    "num_tries": serp["num_tries"],
-                    "num_failures": serp["num_failures"],
-                    "results_count": 0,
-                    "error": entry_error,
-                    "error_code": entry_error_code,
-                })
-                search_durations.append(time.time() - entry_start)
-                continue
-
-            entry_new = 0
-            for link in raw_links:
-                try:
-                    if incremental:
-                        cursor.execute(
-                            "SELECT id FROM search_links WHERE link = %s LIMIT 1",
-                            (link,),
-                        )
-                        existing = cursor.fetchone()
-                        if existing:
-                            continue
-
-                    link_id = _record_link(
-                        cursor, "SERPAPI", query, None, link,
-                        processing_time=api_duration,
-                        num_api_tries=serp["num_tries"],
-                        num_api_failures=serp["num_failures"],
-                        is_successful=1,
-                    )
-                    if link not in all_urls:
-                        url_to_search_link_id[link] = link_id
-                    all_urls.add(link)
-                    entry_new += 1
-                    connection.commit()
-                except Error as e:
-                    try:
-                        connection.rollback()
-                    except Exception:
-                        pass
-                    link_str = link if isinstance(link, str) else str(link)
-                    snippet = (
-                        (link_str[:200] + "…")
-                        if len(link_str) > 200
-                        else link_str
-                    )
-                    msg = f"Skipping discovered URL (database): {e} link={snippet!r}"
-                    all_warnings.append(msg)
-                    print(f"    WARNING: {msg}")
+                if entry_error:
+                    print(f"    ERROR: {entry_error}")
+                    all_errors.append(f"{query}: {entry_error}")
+                    search_results.append({
+                        "query": query,
+                        "domain": domain,
+                        "duration_seconds": round(time.time() - entry_start, 3),
+                        "num_tries": serp["num_tries"],
+                        "num_failures": serp["num_failures"],
+                        "results_count": 0,
+                        "error": entry_error,
+                        "error_code": entry_error_code,
+                    })
+                    search_durations.append(time.time() - entry_start)
                     continue
 
-            if incremental:
-                print(f"    {entry_new} new results")
-            else:
-                print(f"    {len(raw_links)} results found")
+                results_dict = serp["results"]
+                organic = results_dict.get("organic_results", []) if isinstance(results_dict, dict) else []
+                raw_links = [r.get("link") for r in organic if r.get("link")]
 
-            entry_duration = round(time.time() - entry_start, 3)
-            search_durations.append(entry_duration)
+                if not raw_links:
+                    entry_error = f"No organic results for query: {query}"
+                    entry_error_code = ErrorCode.SEARCH_NO_RESULTS.value
+                    print(f"    WARNING: {entry_error}")
+                    all_warnings.append(entry_error)
+                    search_results.append({
+                        "query": query,
+                        "domain": domain,
+                        "duration_seconds": round(time.time() - entry_start, 3),
+                        "num_tries": serp["num_tries"],
+                        "num_failures": serp["num_failures"],
+                        "results_count": 0,
+                        "error": entry_error,
+                        "error_code": entry_error_code,
+                    })
+                    search_durations.append(time.time() - entry_start)
+                    continue
 
-            search_results.append({
-                "query": query,
-                "domain": domain,
-                "duration_seconds": entry_duration,
-                "num_tries": serp["num_tries"],
-                "num_failures": serp["num_failures"],
-                "results_count": entry_new if incremental else len(raw_links),
-                "error": None,
-                "error_code": None,
-            })
+                entry_new = 0
+                for link in raw_links:
+                    try:
+                        if incremental:
+                            cursor.execute(
+                                "SELECT id FROM search_links WHERE link = %s LIMIT 1",
+                                (link,),
+                            )
+                            existing = cursor.fetchone()
+                            if existing:
+                                continue
+
+                        link_id = _record_link(
+                            cursor, "SERPAPI", query, None, link,
+                            processing_time=api_duration,
+                            num_api_tries=serp["num_tries"],
+                            num_api_failures=serp["num_failures"],
+                            is_successful=1,
+                        )
+                        if link not in all_urls:
+                            url_to_search_link_id[link] = link_id
+                        all_urls.add(link)
+                        entry_new += 1
+                        connection.commit()
+                    except Error as e:
+                        try:
+                            connection.rollback()
+                        except Exception:
+                            pass
+                        link_str = link if isinstance(link, str) else str(link)
+                        snippet = (
+                            (link_str[:200] + "…")
+                            if len(link_str) > 200
+                            else link_str
+                        )
+                        msg = f"Skipping discovered URL (database): {e} link={snippet!r}"
+                        all_warnings.append(msg)
+                        print(f"    WARNING: {msg}")
+                        continue
+
+                if incremental:
+                    print(f"    {entry_new} new results")
+                else:
+                    print(f"    {len(raw_links)} results found")
+
+                entry_duration = round(time.time() - entry_start, 3)
+                search_durations.append(entry_duration)
+
+                search_results.append({
+                    "query": query,
+                    "domain": domain,
+                    "duration_seconds": entry_duration,
+                    "num_tries": serp["num_tries"],
+                    "num_failures": serp["num_failures"],
+                    "results_count": entry_new if incremental else len(raw_links),
+                    "error": None,
+                    "error_code": None,
+                })
 
         try:
             connection.commit()
