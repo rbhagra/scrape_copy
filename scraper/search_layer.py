@@ -35,7 +35,7 @@ def split_date_range_monthly(start_date_str, end_date_str):
     while current_start <= end_date:
         # Calculate the end of the current month
         next_month_start = current_start + relativedelta(months=1)
-        # Set to the first of next month, then subtract a day to get last day of current month
+        # get last day of current month 
         month_end = min(next_month_start - timedelta(days=1), end_date)
         
         date_ranges.append((current_start, month_end))
@@ -209,22 +209,25 @@ def discover_urls(searches, connection, incremental=False, settings=None):
     search_durations = []
     
     # Extract date range settings
-    settings = settings or {}
-    start_date_str = settings.get("Start Date")
-    end_date_str = settings.get("End Date")
+    if not settings:  # base dates in case no dates are given. Start in 2010 and end at current date.
+        start_date_str_base = "2010-01-01"
+        end_date_str_base = datetime.now().strftime("%Y-%m-%d")
+    else:
+        start_date_str = settings.get("Start Date")
+        end_date_str = settings.get("End Date")
     
     # Split date range into monthly increments if both dates are provided
     date_ranges = []
     if start_date_str and end_date_str:
         try:
             date_ranges = split_date_range_monthly(start_date_str, end_date_str)
-            print(f"  Date range {start_date_str} to {end_date_str} split into {len(date_ranges)} monthly searches")
+         
         except ValueError as e:
-            all_warnings.append(f"Invalid date format in settings: {e}. Searching without date filter.")
-            date_ranges = [(None, None)]
+            all_warnings.append(f"Invalid date format in settings: {e}. Searching with base dates")
+            
     else:
-        # No date filtering - single search with no date range
-        date_ranges = [(None, None)]
+        # deafult the base dates; split this into monthly increments 
+        date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
 
     cursor = None
     try:

@@ -11,7 +11,7 @@
     "Ethical AI",
     "Algorithmic Impact Assessment"
   ],
-  "Jurisdictions and signal": {
+  "Jurisdictions and Signals": {
     "congress.gov": {
       "signals": ["/bill"]
     },
@@ -40,5 +40,9 @@
     "ilga.gov": {
       "signals": ["/legislation"]
     }
+  },
+  "Settings": {
+    "Start Date": "2025-01-01",
+    "End Date": "2025-12-31"
   }
 }
