@@ -208,25 +208,27 @@ def discover_urls(searches, connection, incremental=False, settings=None):
     all_warnings = []
     search_durations = []
     
-    # Extract date range settings
-    if not settings:  # base dates in case no dates are given. Start in 2010 and end at current date.
-        start_date_str_base = "2010-01-01"
-        end_date_str_base = datetime.now().strftime("%Y-%m-%d")
-    else:
+    # Base dates in case no dates are given or dates are invalid
+    start_date_str_base = "2010-01-01"
+    end_date_str_base = datetime.now().strftime("%Y-%m-%d")
+    
+    # Extract date range from settings if provided
+    start_date_str = None
+    end_date_str = None
+    if settings:
         start_date_str = settings.get("Start Date")
         end_date_str = settings.get("End Date")
     
-    # Split date range into monthly increments if both dates are provided
+    # Split date range into monthly increments
     date_ranges = []
     if start_date_str and end_date_str:
         try:
             date_ranges = split_date_range_monthly(start_date_str, end_date_str)
-         
         except ValueError as e:
-            all_warnings.append(f"Invalid date format in settings: {e}. Searching with base dates")
-            
+            all_warnings.append(f"Invalid date format in settings: {e}. Searching with base dates.")
+            date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
     else:
-        # deafult the base dates; split this into monthly increments 
+        # Default to base dates if dates not provided or incomplete
         date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
 
     cursor = None
