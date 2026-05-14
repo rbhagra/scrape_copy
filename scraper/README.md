@@ -369,3 +369,66 @@ When using `run_scheduled.py`, the `scheduled` object is added:
   }
 }
 ```
+
+## Database Metric Files
+
+Through the usage of dbmetrics.py, you can scan a database for information about what are the most prevelant terms and links by different terms and links, as well as the largest term-link groups in your database.
+Database scanning is done through the information in the .env file. 
+
+### Database Metrics Files
+
+All metrics are stored in subfolder 'metrics/'. This folder is created upon running running dbmetrics if it does not already exist. 
+These files follow the nomenclature: 
+
+    type-phrase-databaseName-metrics-timestamp
+
+These different words have the following meanings:
+- 'type' - term, general, or link, represents the type of following phrase and subsequent search
+- 'phrase' - the string by which the database is filtered to only show terms/links correpsonding to that phrase
+                * This is an empty string for general metrics
+- 'databaseName' - the name of the database the dbmetrics is run on
+- 'timestamp' - timestamp in the standard form of python time directory
+
+Most of the files, are organized as such:
+
+| Phrase(s) | Frequency |
+|-------|-------------|
+| `term` or `link` | Count of each in the database for the search term |
+
+For general metrics files, however, each link and term group is a unique combination, thus this file is structed as so:
+
+| Phrase(s) | Frequency |
+|-------|-------------|
+| `term` | `link` | Count of each in the database |
+
+
+
+### Running Database Metrics
+
+dbmetrics can be run without a config file or with one, wherin the first case a general metrics analysis is done on the database. This is done as so:
+
+```bash
+python dbmetrics.py
+```
+
+To run dbmetrics with config file (which is necessary to search for term/link frequency by phrase), you must append the existing config.json file as so:
+
+Example:
+```json
+{
+  "other settings": {
+      ...
+  },
+  "metrics" : {
+    "type": "link",
+    "phrase": "congress.gov"
+  }
+}
+```
+Following this formatting, the dbmetrics is simply run through th following command:
+
+```bash
+python dbmetrics.py --config path/to/config.json
+```
+
+
