@@ -367,3 +367,140 @@ When using `run_scheduled.py`, the `scheduled` object is added:
   }
 }
 ```
+
+---
+
+## Bill Viewer Web Application
+
+A web interface for browsing scraped bills and configuring new scrape jobs.
+
+### Quick Start
+
+**Terminal 1 - Backend (Flask API):**
+```bash
+cd /path/to/scraper
+source .venv/bin/activate
+pip install -r web/requirements.txt
+.venv/bin/python -m web.api.app
+```
+
+**Terminal 2 - Frontend (React):**
+```bash
+cd /path/to/scraper/web/frontend
+npm install
+npm run dev
+```
+
+**Browser:**
+Open page shown in second terminal 
+
+### Web Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         User's Browser                          │
+│                     http://127.0.0.1:5173                       │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Frontend (React + Vite)                       │
+│                         Port 5173                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Browse    │  │  New Scrape │  │ Job Status  │              │
+│  │    Bills    │  │    Form     │  │   Tracker   │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                          /api/* proxy
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Backend (Flask API)                           │
+│                         Port 5000                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │/api/bills   │  │/api/        │  │/api/scrapes │              │
+│  │             │  │jurisdictions│  │             │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+└─────────────────────────────────────────────────────────────────┘
+                │                               │
+                ▼                               ▼
+┌───────────────────────────┐    ┌──────────────────────────────┐
+│         MySQL DB          │    │     run_scheduled.py         │
+│  (leg_html, leg_processed)│    │    (spawned as subprocess)   │
+└───────────────────────────┘    └──────────────────────────────┘
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check |
+| `/api/jurisdictions` | GET | List unique domains from `leg_html` |
+| `/api/bills` | GET | List bills with optional `?jurisdiction=` filter |
+| `/api/bills/<id>` | GET | Get single bill with full text |
+| `/api/scrapes` | GET | List all scrape jobs |
+| `/api/scrapes` | POST | Create and start a new scrape job |
+| `/api/scrapes/<job_id>` | GET | Get job status and results |
+
+### Features
+
+**Browse Bills**
+- Filter bills by jurisdiction (domain)
+- Paginated list view with excerpts
+- Full text detail view with metadata
+
+**New Scrape**
+- Enter search terms (one per line)
+- Select jurisdictions from predefined list
+- Set optional date range (Start Date / End Date)
+- Jobs run asynchronously in background
+
+**Job Status**
+- Real-time status updates (polls every 3 seconds)
+- View results when complete
+- See error logs on failure
+
+### Web Application File Structure
+
+```
+web/
+├── api/
+│   ├── __init__.py
+│   ├── app.py           # Flask app entry point
+│   ├── db.py            # Database connection helper
+│   ├── bills.py         # /api/bills endpoints
+│   ├── jurisdictions.py # /api/jurisdictions endpoint
+│   ├── scrapes.py       # /api/scrapes endpoints
+│   └── job_runner.py    # Background job management
+├── frontend/
+│   ├── src/
+│   │   ├── App.tsx              # Main app with routing
+│   │   ├── components/
+│   │   │   ├── BillsBrowser.tsx
+│   │   │   ├── BillsList.tsx
+│   │   │   ├── BillDetail.tsx
+│   │   │   ├── JurisdictionSelector.tsx
+│   │   │   ├── ScrapeForm.tsx
+│   │   │   └── JobStatus.tsx
+│   │   ├── api/client.ts        # API fetch functions
+│   │   └── types.ts             # TypeScript types
+│   ├── vite.config.ts           # Dev server + proxy config
+│   └── package.json
+├── requirements.txt     # Python dependencies (flask, flask-cors, psutil)
+└── README.md
+```
+
+### Web Dependencies
+
+**Backend (Python):**
+- `flask` - Web framework
+- `flask-cors` - Cross-origin resource sharing
+- `psutil` - Process monitoring for job status
+
+**Frontend (Node.js):**
+- React 18+ with TypeScript
+- Vite (build tool)
+- TailwindCSS (styling)
+- React Router (navigation)
+- TanStack Query (data fetching)
