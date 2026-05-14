@@ -13,7 +13,7 @@
 Install required packages:
 
 ```bash
-pip install mysql-connector-python python-dotenv requests beautifulsoup4 selenium pymupdf pymupdf4llm serpapi
+pip install mysql-connector-python python-dotenv requests beautifulsoup4 selenium pymupdf pymupdf4llm serpapi lxml python-dateutil pdfservices-sdk
 ```
 
 ### Environment Variables
@@ -26,6 +26,8 @@ user_name=your_username
 password=your_password
 database_name=your_database
 serp_api_key=your_serpapi_key
+# if using congress api:
+congress_api_key=your_congress_api_key
 ```
 
 ### Database Setup
