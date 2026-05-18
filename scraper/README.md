@@ -399,7 +399,7 @@ Most of the files, are organized as such:
 
 For general metrics files, however, each link and term group is a unique combination, thus this file is structed as so:
 
-| Phrase(s) | Frequency |
+| Term | Link | Frequency |
 |-------|-------------|
 | `term` | `link` | Count of each in the database |
 
