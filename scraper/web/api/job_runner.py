@@ -1,30 +1,60 @@
 import os
+import sys
 import json
 import subprocess
 import psutil
 import time
 import glob
 
-JOBS_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'jobs')
-PROJECT_ROOT = os.path.join(os.path.dirname(__file__), '..', '..')
+JOBS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'jobs'))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+PIPELINE_DIR = os.path.join(PROJECT_ROOT, 'pipeline')
+
+DB_DIR = os.path.join(PROJECT_ROOT, 'db related')
 RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results', 'bills')
+STALL_AFTER_SECONDS = 180
+
+
+def get_log_metadata(log_path):
+    if not os.path.exists(log_path):
+        return {'size': 0, 'age_seconds': None}
+    mtime = os.path.getmtime(log_path)
+    return {
+        'size': os.path.getsize(log_path),
+        'age_seconds': max(0, int(time.time() - mtime)),
+    }
 
 
 def start_scrape_job(job_id, config_path):
     job_dir = os.path.join(JOBS_DIR, job_id)
     log_path = os.path.join(job_dir, 'output.log')
-    
-    run_scheduled_path = os.path.join(PROJECT_ROOT, 'run_scheduled.py')
-    
+
+    run_scheduled_path = os.path.join(PIPELINE_DIR, 'run_scheduled.py')
+    if not os.path.exists(run_scheduled_path):
+        raise FileNotFoundError(
+            f"Pipeline entry point not found: {run_scheduled_path}"
+        )
+
+
+    env = os.environ.copy()
+    extra_paths = [PIPELINE_DIR, PROJECT_ROOT, DB_DIR]
+    existing = env.get('PYTHONPATH', '')
+    env['PYTHONPATH'] = os.pathsep.join(
+        [p for p in extra_paths + [existing] if p]
+    )
+    # Ensure pipeline output appears in job logs immediately.
+    env['PYTHONUNBUFFERED'] = '1'
+
     with open(log_path, 'w') as log_file:
         process = subprocess.Popen(
-            ['python', run_scheduled_path, '--config', config_path],
+            [sys.executable, '-u', run_scheduled_path, '--config', os.path.abspath(config_path)],
             stdout=log_file,
             stderr=subprocess.STDOUT,
-            cwd=PROJECT_ROOT,
-            start_new_session=True
+            cwd=PIPELINE_DIR,
+            env=env,
+            start_new_session=True,
         )
-    
+
     return process.pid
 
 
@@ -78,7 +108,29 @@ def get_job_status(job_id):
     }
     
     if running:
+        log_meta = get_log_metadata(log_path)
+        runtime_seconds = max(0, int(time.time() - start_time))
+        stalled = (
+            runtime_seconds >= STALL_AFTER_SECONDS
+            and (
+                log_meta['size'] == 0
+                or (
+                    log_meta['age_seconds'] is not None
+                    and log_meta['age_seconds'] >= STALL_AFTER_SECONDS
+                )
+            )
+        )
+
         result['status'] = 'running'
+        result['runtime_seconds'] = runtime_seconds
+        result['log_size_bytes'] = log_meta['size']
+        result['last_log_update_seconds_ago'] = log_meta['age_seconds']
+        result['activity_state'] = 'stalled' if stalled else 'active'
+        if stalled:
+            result['activity_note'] = (
+                f"No log activity for >= {STALL_AFTER_SECONDS}s. "
+                "The worker may be stuck."
+            )
     else:
         status_json_path = find_latest_status_json(start_time)
         if status_json_path:

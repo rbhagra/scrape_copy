@@ -1,11 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchScrapeJob } from '../api/client';
+import type { ScrapeJob } from '../types';
 
 export default function JobStatus() {
   const { jobId } = useParams<{ jobId: string }>();
 
-  const { data: job, isLoading, error } = useQuery({
+  const { data: job, isLoading, error } = useQuery<ScrapeJob>({
     queryKey: ['scrape', jobId],
     queryFn: () => fetchScrapeJob(jobId!),
     refetchInterval: (query) => {
@@ -48,6 +49,24 @@ export default function JobStatus() {
     failed: 'bg-red-100 text-red-800',
   };
 
+  const config = job.config as
+    | {
+        terms?: string[];
+        jurisdictions?: Record<string, { signals?: string[] }>;
+        start_date?: string;
+        end_date?: string;
+        Terms?: string[];
+        'Jurisdictions and signal'?: Record<string, { signals?: string[] }>;
+        Settings?: { 'Start Date'?: string; 'End Date'?: string };
+      }
+    | undefined;
+
+  const searchTerms = config?.terms ?? config?.Terms ?? [];
+  const jurisdictions =
+    config?.jurisdictions ?? config?.['Jurisdictions and signal'] ?? {};
+  const startDate = config?.start_date ?? config?.Settings?.['Start Date'];
+  const endDate = config?.end_date ?? config?.Settings?.['End Date'];
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -63,32 +82,32 @@ export default function JobStatus() {
           <p className="text-sm text-gray-500 font-mono">{job.job_id}</p>
         </div>
 
-        {job.config && (
+        {config && (
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-gray-900 mb-2">Configuration</h3>
             <dl className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <dt className="text-gray-500">Search Terms</dt>
                 <dd className="text-gray-900">
-                  {job.config.terms?.join(', ') || 'N/A'}
+                  {searchTerms.join(', ') || 'N/A'}
                 </dd>
               </div>
               <div>
                 <dt className="text-gray-500">Jurisdictions</dt>
                 <dd className="text-gray-900">
-                  {Object.keys(job.config.jurisdictions || {}).join(', ') || 'N/A'}
+                  {Object.keys(jurisdictions).join(', ') || 'N/A'}
                 </dd>
               </div>
-              {job.config.start_date && (
+              {startDate && (
                 <div>
                   <dt className="text-gray-500">Start Date</dt>
-                  <dd className="text-gray-900">{job.config.start_date}</dd>
+                  <dd className="text-gray-900">{startDate}</dd>
                 </div>
               )}
-              {job.config.end_date && (
+              {endDate && (
                 <div>
                   <dt className="text-gray-500">End Date</dt>
-                  <dd className="text-gray-900">{job.config.end_date}</dd>
+                  <dd className="text-gray-900">{endDate}</dd>
                 </div>
               )}
             </dl>
@@ -104,30 +123,76 @@ export default function JobStatus() {
               </svg>
               <span className="text-sm text-gray-600">Scraping in progress... This page will update automatically.</span>
             </div>
+            <div className="mt-3 text-sm text-gray-600 space-y-1">
+              <p>
+                Activity:{' '}
+                <span className={job.activity_state === 'stalled' ? 'text-amber-700 font-medium' : 'text-green-700 font-medium'}>
+                  {job.activity_state === 'stalled' ? 'Stalled' : 'Active'}
+                </span>
+              </p>
+              {typeof job.runtime_seconds === 'number' && (
+                <p>Runtime: {Math.floor(job.runtime_seconds / 60)}m {job.runtime_seconds % 60}s</p>
+              )}
+              {typeof job.log_size_bytes === 'number' && (
+                <p>Log size: {job.log_size_bytes.toLocaleString()} bytes</p>
+              )}
+              {typeof job.last_log_update_seconds_ago === 'number' && (
+                <p>Last log update: {job.last_log_update_seconds_ago}s ago</p>
+              )}
+              {job.activity_note && (
+                <p className="text-amber-700">{job.activity_note}</p>
+              )}
+            </div>
           </div>
         )}
 
         {job.status === 'completed' && job.results && (
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Results</h3>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              {job.results.scheduled && (
-                <>
-                  <div>
-                    <dt className="text-gray-500">New URLs Found</dt>
-                    <dd className="text-2xl font-semibold text-gray-900">
-                      {job.results.scheduled.new_urls_found ?? 0}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500">URLs Fixed (Retries)</dt>
-                    <dd className="text-2xl font-semibold text-gray-900">
-                      {job.results.scheduled.urls_fixed ?? 0}
-                    </dd>
-                  </div>
-                </>
-              )}
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Results Summary</h3>
+            <dl className="grid grid-cols-2 gap-4 text-sm mb-4">
+              <div>
+                <dt className="text-gray-500">Total URLs</dt>
+                <dd className="text-2xl font-semibold text-gray-900">
+                  {job.results.total_URLs ?? 0}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-gray-500">Successful</dt>
+                <dd className="text-2xl font-semibold text-green-600">
+                  {job.results.successful_URLs ?? 0}
+                </dd>
+              </div>
             </dl>
+            
+            {job.results.processed_urls && job.results.processed_urls.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Scraped Bills</h4>
+                <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
+                  <ul className="divide-y divide-gray-200">
+                    {job.results.processed_urls
+                      .filter((item: { url: string; success: boolean }) => item.success)
+                      .map((item: { url: string; success: boolean }, idx: number) => (
+                        <li key={idx} className="px-3 py-2 hover:bg-gray-50">
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:text-blue-800 hover:underline break-all"
+                          >
+                            {item.url}
+                          </a>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+                {(job.results.failed_URLs ?? 0) > 0 && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    {job.results.failed_URLs ?? 0} URL(s) failed to process
+                  </p>
+                )}
+              </div>
+            )}
+            
             <div className="mt-4">
               <Link
                 to="/"
