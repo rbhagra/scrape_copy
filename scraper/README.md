@@ -374,10 +374,11 @@ When using `run_scheduled.py`, the `scheduled` object is added:
 
 Through the usage of dbmetrics.py, you can scan a database for information about what are the most prevelant terms and links by different terms and links, as well as the largest term-link groups in your database.
 Database scanning is done through the information in the .env file. 
+The 'dbmetrics' program is also run after each successful run of the pipeline algorithm
 
 ### Database Metrics Files
 
-All metrics are stored in subfolder 'metrics/'. This folder is created upon running running dbmetrics if it does not already exist. 
+All metrics are stored in subfolder "results\metrics", which is a subfolder for the results folder. This folder is created upon running running dbmetrics if it does not already exist. 
 These files follow the nomenclature: 
 
     type-phrase-databaseName-metrics-timestamp
@@ -387,7 +388,8 @@ These different words have the following meanings:
 - 'phrase' - the string by which the database is filtered to only show terms/links correpsonding to that phrase
                 * This is an empty string for general metrics
 - 'databaseName' - the name of the database the dbmetrics is run on
-- 'timestamp' - timestamp in the standard form of python time directory
+- 'timestamp' - timestamp in form: YEARMONTHDAY_HOURMINUTESECOND
+                * Note that this means that metrics analysis with the same type, parameter and database must occur at least 1 second apart
 
 Most of the files, are organized as such:
 

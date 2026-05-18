@@ -2,10 +2,11 @@
 
 import mysql.connector
 import csv
-import datetime
+from datetime import datetime
 import json
 import argparse
 
+from pathlib import Path
 from dbconnection import create_connection
 import os
 from dotenv import load_dotenv
@@ -49,20 +50,37 @@ def load_config(config_path):
 
 def dbmetrics(type = "general", par = ""):
     try:
+        #error catching if type is set but no parameter is set
+        if type.lower() in ("link", "term") and not par:
+            raise ValueError(f"'par' is required when type is '{type}'")
+        
+        #db connection
         print(f"Connecting to {database}...")
         connection = connection_setup
         cursor = connection.cursor()
 
-        #creating a csv fil in a subfolder to store rankings in
-        output_folder = "metrics"
+        #setting names for metrics subfolder and file 
+        PROJECTROOT = (Path(__file__).parent).parent
 
-        #safety check for folder existence 
+
+        output_folder =  os.path.join(PROJECTROOT,os.path.join("results", "metrics"))
+        TIMESTAMP = (datetime.now()).strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{type}-{par}-{database}-metrics-{TIMESTAMP}"
+        
+        #checking for metrics subfolder in results
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
-        
+                
         #naming folder and setting path to subfolder
-        output_filename = f"{type}-{par}-{database}-metrics-{int((datetime.datetime.now()).timestamp())}"
+
         output_filepath = os.path.join(output_folder, output_filename)
+
+        #checking path already exists
+        if os.path.isfile(output_filepath):
+            raise RuntimeError("""
+                                A metric already exists for this type, par, and time. 
+                                Wait at least 1 second before trying again.
+                                """)
 
         #default query, organizes all by both links and term groups
         if (type.lower() == "general"):
@@ -112,12 +130,15 @@ def dbmetrics(type = "general", par = ""):
         #saving return of query
         rankings = cursor.fetchall()
 
-        #writing results to file in folder
+        #writing results as csv file to folder
         print(f"Writing data to file {output_filepath}")
         with open(output_filepath, mode="w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
 
-            writer.writerow(["Phrase(s)", "Frequency"])
+            if type.lower() == "general":
+                writer.writerow(["Search Term", "Site", "Frequency"])
+            else:
+                writer.writerow(["Phrase(s)", "Frequency"])
 
             writer.writerows(rankings)
         print(f"{len(rankings)} written to file")
@@ -135,7 +156,7 @@ def dbmetrics(type = "general", par = ""):
         if 'cursor' in locals():
             cursor.close()
         if 'connection' in locals() and connection.is_connected():
-            connection.close
+            connection.close()
 
 #main function
 if __name__ == "__main__":
