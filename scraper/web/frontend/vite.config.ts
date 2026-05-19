@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '../..', '')
-  const appPort = env.APP_PORT || '5001'
+  const appPort = env.app_port || '5001'
   const apiProxyTarget = `http://127.0.0.1:${appPort}`
 
   return {

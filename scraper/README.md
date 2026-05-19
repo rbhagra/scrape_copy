@@ -28,7 +28,10 @@ database_name=your_database
 serp_api_key=your_serpapi_key
 # if using congress api:
 congress_api_key=your_congress_api_key
+app_port=port_on_your_machine_to_run_app
 ```
+
+If a port is not defined in .env, program will deafult to 5001
 
 ### Database Setup
 
@@ -439,6 +442,12 @@ python dbmetrics.py --config path/to/config.json
 
 A web interface for browsing scraped bills and configuring new scrape jobs.
 
+NOTE: Make sure to define an avaiable port in your env file. The app will run on that port
+
+NOTE: Make sure to define mock status is frontend .env file (more below in mock section)
+
+NOTE 2: 
+
 ### Quick Start
 
 **Terminal 1 - Backend (Flask API):**
@@ -525,6 +534,20 @@ Open page shown in second terminal
 - Real-time status updates (polls every 3 seconds)
 - View results when complete
 - See error logs on failure
+
+### Mock Mode (Frontend Development)
+
+Run the frontend without a backend using Mock Service Worker (MSW):
+
+```bash
+cd web/frontend
+echo "VITE_USE_MOCKS=true" > .env
+npm run dev
+```
+
+This intercepts all `/api/*` requests and returns dummy data, useful for UI development or demos. Mock data lives in `web/frontend/src/mocks/`.
+
+To return to normal mode, set `VITE_USE_MOCKS=false` or remove the line.
 
 ### Web Application File Structure
 

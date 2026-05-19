@@ -34,5 +34,5 @@ def health():
 
 
 if __name__ == '__main__':
-    backend_port = int(os.getenv('APP_PORT', '5001'))
+    backend_port = int(os.getenv('app_port', '5001'))
     app.run(debug=True, port=backend_port)
