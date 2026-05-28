@@ -29,6 +29,7 @@ serp_api_key=your_serpapi_key
 # if using congress api:
 congress_api_key=your_congress_api_key
 app_port=port_on_your_machine_to_run_app
+incremental_run = disallow_duplicate_links_T/F
 ```
 
 If a port is not defined in .env, program will deafult to 5001
