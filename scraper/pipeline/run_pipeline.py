@@ -29,6 +29,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+incremental_run = os.getenv("incremental_run")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results" / "bills"
