@@ -1,3 +1,5 @@
 #ignores env file
 .env
+.venv
 node_modules/
+__pycache__/
