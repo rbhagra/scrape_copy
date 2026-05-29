@@ -1,7 +1,7 @@
 import { http, HttpResponse, delay } from 'msw';
 import {
   mockBillById,
-  mockBills,
+  mockBillsResponse,
   mockJobCompleted,
   mockJobFailed,
   mockJobRunning,
@@ -22,24 +22,11 @@ export const handlers = [
     const url = new URL(request.url);
     const page = Number(url.searchParams.get('page') || '1');
     const perPage = Number(url.searchParams.get('per_page') || '20');
-    const jurisdiction = url.searchParams.get('jurisdiction');
-
-    let list = mockBills;
-    if (jurisdiction) {
-      list = mockBills.filter((b) => b.domain === jurisdiction);
-    }
-
-    const total = list.length;
-    const total_pages = Math.max(1, Math.ceil(total / perPage));
-    const start = (page - 1) * perPage;
-    const bills = list.slice(start, start + perPage);
 
     return HttpResponse.json({
-      bills,
-      total,
+      ...mockBillsResponse,
       page,
       per_page: perPage,
-      total_pages,
     });
   }),
 
