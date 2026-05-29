@@ -10,7 +10,7 @@ interface Props {
   selectedBillId?: number;
 }
 
-// alskjdflkjasd
+// function to format bill url into something more readable
 function formatUrl(url: string): string {
   try {
     const { hostname, pathname } = new URL(url);
