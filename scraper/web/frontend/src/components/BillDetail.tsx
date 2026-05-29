@@ -14,7 +14,7 @@ export default function BillDetail({ billId, onClose }: Props) {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6 animate-pulse">
+      <div className="bg-white rounded-lg shadow-lg shadow-blue-200 p-6 animate-pulse">
         <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
         <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
         <div className="h-4 bg-gray-200 rounded w-1/3 mb-6"></div>
@@ -29,7 +29,7 @@ export default function BillDetail({ billId, onClose }: Props) {
 
   if (error || !bill) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
+      <div className="bg-white rounded-lg shadow-lg shadow-blue-200 p-6">
         <div className="text-red-600">Failed to load bill details</div>
         <button
           onClick={onClose}
@@ -42,7 +42,7 @@ export default function BillDetail({ billId, onClose }: Props) {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+    <div className="bg-white rounded-lg shadow-lg shadow-blue-200 overflow-hidden sticky top-20">
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">Bill Details</h2>
         <button
@@ -59,7 +59,7 @@ export default function BillDetail({ billId, onClose }: Props) {
         <dl className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <dt className="text-gray-500">Source URL</dt>
-            <dd className="mt-1">
+            <dd className="mt-1 italic">
               <a
                 href={bill.source_url}
                 target="_blank"
@@ -95,7 +95,7 @@ export default function BillDetail({ billId, onClose }: Props) {
       
       <div className="px-6 py-4">
         <h3 className="text-sm font-medium text-gray-900 mb-2">Full Text</h3>
-        <div className="max-h-96 overflow-y-auto">
+        <div className="max-h-[600px] overflow-y-auto">
           <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
             {bill.clean_text || 'No text available'}
           </pre>

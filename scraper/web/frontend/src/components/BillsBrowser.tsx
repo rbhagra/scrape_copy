@@ -18,7 +18,7 @@ export default function BillsBrowser() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Browse Bills</h2>
+        <h2 className="text-2xl font-bold text-blue-900">Browse Bills</h2>
         <div className="w-64">
           <JurisdictionSelector
             value={jurisdiction}

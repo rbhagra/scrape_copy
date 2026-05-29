@@ -68,11 +68,11 @@ export default function ScrapeForm() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">New Scrape</h2>
+      <h2 className="text-2xl font-bold text-blue-900 mb-6">New Scrape</h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label htmlFor="terms" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="terms" className="block text-sm font-bold text-gray-700 mb-1">
             Search Terms
           </label>
           <p className="text-sm text-gray-500 mb-2">
@@ -90,7 +90,7 @@ export default function ScrapeForm() {
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-bold text-gray-700">
               Jurisdictions
             </label>
             <div className="space-x-2">

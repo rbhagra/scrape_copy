@@ -29,7 +29,8 @@ def list_bills():
         total = cursor.fetchone()['total']
         
         query = '''
-            SELECT p.id, p.source_url, p.search_term,
+        # Added title to select list
+            SELECT p.id, p.source_url, p.search_term, p.title,
                    SUBSTRING(p.clean_text, 1, 500) as excerpt,
                    h.domain, h.created_at
             FROM leg_processed p
@@ -49,7 +50,8 @@ def list_bills():
         total = cursor.fetchone()['total']
         
         query = '''
-            SELECT p.id, p.source_url, p.search_term,
+        # Added title to select list
+            SELECT p.id, p.source_url, p.search_term, p.title,
                    SUBSTRING(p.clean_text, 1, 500) as excerpt,
                    h.domain, h.created_at
             FROM leg_processed p
@@ -83,7 +85,8 @@ def get_bill(bill_id):
     
     cursor = db.cursor(dictionary=True)
     query = '''
-        SELECT p.id, p.source_url, p.clean_text, p.search_term,
+    # Added title to select list
+        SELECT p.id, p.source_url, p.clean_text, p.search_term, p.title,
                p.text_processing_method,
                h.domain, h.created_at
         FROM leg_processed p
