@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from mysql.connector import Error
 from dotenv import load_dotenv
 from error_codes import ErrorCode
+import serpapi
 
 load_dotenv()
 serp_api_key = os.getenv("serp_api_key")
@@ -110,7 +111,6 @@ def _search_serp_api(query, max_results, max_retries=2):
     for attempt in range(1 + max_retries):
         num_tries += 1
         try:
-            serpapi = importlib.import_module("serpapi")
             client = serpapi.Client(api_key=serp_api_key)
             raw = client.search(search_params)
 
