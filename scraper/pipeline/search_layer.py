@@ -7,6 +7,7 @@ import time
 import importlib
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from mysql.connector import Error
 from dotenv import load_dotenv
 from error_codes import ErrorCode
@@ -184,8 +185,7 @@ def _record_links_batch(cursor, links_data):
     cursor.executemany(insert_query, rows)
 
     link_to_id = {}
-    links_needing_ids = [data["link"] for data in links_data if data["needs_id"]]
-    for link in links_needing_ids:
+    for link in [data["link"] for data in links_data]:
         cursor.execute(
             """SELECT id FROM search_links
                WHERE link = %s AND is_successful = 1
@@ -199,9 +199,15 @@ def _record_links_batch(cursor, links_data):
     return link_to_id
 
 
+def _fetch_serp_worker(query_info):
+    """Worker function for ThreadPoolExecutor - executes a single SERP API call."""
+    serp_result = _search_serp_api(query_info["query"], query_info["max_results"])
+    return {"query_info": query_info, "serp": serp_result}
+
+
 def discover_urls(searches, connection, incremental=False, settings=None):
     """
-    For each search entry, query SERP API, record results in search_links,
+    For each search entry, query SERP API in parallel, record results in search_links,
     and return a structured discovery report.
 
     Args:
@@ -254,145 +260,161 @@ def discover_urls(searches, connection, incremental=False, settings=None):
         # Default to base dates if dates not provided or incomplete
         date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
 
-    cursor = None
+    # Phase 1: Build all queries upfront
+    from constants import MAXIMUM_RESULTS
+    all_queries = []
+    
+    for entry in searches:
+        term = entry["term"]
+        domain = entry["domain"]
+        inurl = entry.get("inurl")  # May be None if no signal for this domain
+        max_results = entry.get("max_results", MAXIMUM_RESULTS)
+        
+        for month_start, month_end in date_ranges:
+            query = _build_query(term, domain, inurl, start_date=month_start, end_date=month_end)
+            all_queries.append({
+                "query": query,
+                "domain": domain,
+                "inurl": inurl,
+                "max_results": max_results,
+                "term": term,
+                "month_start": month_start,
+                "month_end": month_end,
+            })
+    
+    # Execute SERP API calls in parallel
+    serp_results = []
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_query = {executor.submit(_fetch_serp_worker, q): q for q in all_queries}
+        
+        for future in as_completed(future_to_query):
+            query_info = future_to_query[future]
+            try:
+                serp_results.append(future.result())
+            except Exception as e:
+                all_errors.append(f"{query_info['query']}: {e}")
+                serp_results.append({
+                    "query_info": query_info,
+                    "serp": {
+                        "results": {},
+                        "num_tries": 0,
+                        "num_failures": 1,
+                        "error": str(e),
+                        "error_code": ErrorCode.SERP_API_FAILED.value,
+                        "duration": 0.0,
+                    },
+                })
+    #writing to db sequentially
+        cursor = None
     try:
         cursor = connection.cursor()
-
-        for entry in searches:
-            term = entry["term"]
-            domain = entry["domain"]
-            inurl = entry.get("inurl")
-            from constants import MAXIMUM_RESULTS
-            max_results = entry.get("max_results", MAXIMUM_RESULTS)
-
-            # Run a search for each monthly date range
-            for month_start, month_end in date_ranges:
-                # Build query with date range included using after:/before: operators
-                query = _build_query(term, domain, inurl, start_date=month_start, end_date=month_end)
-
-                entry_start = time.time()
-                print(f"  Searching: {query}  (max {max_results} results)")
-
-                serp = _search_serp_api(query, max_results)
-                api_duration = serp["duration"]
-
-                entry_error = serp["error"]
-                entry_error_code = serp["error_code"]
-
-                if entry_error:
-                    print(f"    ERROR: {entry_error}")
-                    all_errors.append(f"{query}: {entry_error}")
-                    search_results.append({
-                        "query": query,
-                        "domain": domain,
-                        "duration_seconds": round(time.time() - entry_start, 3),
-                        "num_tries": serp["num_tries"],
-                        "num_failures": serp["num_failures"],
-                        "results_count": 0,
-                        "error": entry_error,
-                        "error_code": entry_error_code,
-                    })
-                    search_durations.append(time.time() - entry_start)
-                    continue
-
-                results_dict = serp["results"]
-                organic = results_dict.get("organic_results", []) if isinstance(results_dict, dict) else []
-                raw_links = [r.get("link") for r in organic if r.get("link")]
-
-                if not raw_links:
-                    entry_error = f"No organic results for query: {query}"
-                    entry_error_code = ErrorCode.SEARCH_NO_RESULTS.value
-                    print(f"    WARNING: {entry_error}")
-                    all_warnings.append(entry_error)
-                    search_results.append({
-                        "query": query,
-                        "domain": domain,
-                        "duration_seconds": round(time.time() - entry_start, 3),
-                        "num_tries": serp["num_tries"],
-                        "num_failures": serp["num_failures"],
-                        "results_count": 0,
-                        "error": entry_error,
-                        "error_code": entry_error_code,
-                    })
-                    search_durations.append(time.time() - entry_start)
-                    continue
-
-                links_to_insert = []
-                links_seen_in_query = set()
-                entry_new = 0
-
-                for link in raw_links:
-                    try:
-                        if incremental:
-                            cursor.execute(
-                                "SELECT id FROM search_links WHERE link = %s LIMIT 1",
-                                (link,),
-                            )
-                            existing = cursor.fetchone()
-                            if existing:
-                                continue
-
-                        links_to_insert.append({
-                            "search_method": "SERPAPI",
-                            "keyword_search": query,
-                            "other_filters": None,
-                            "link": link,
-                            "processing_time": api_duration,
-                            "num_api_tries": serp["num_tries"],
-                            "num_api_failures": serp["num_failures"],
-                            "failure_type": None,
-                            "is_successful": 1,
-                            "needs_id": link not in all_urls and link not in links_seen_in_query,
-                        })
-                        links_seen_in_query.add(link)
-                        entry_new += 1
-
-                    except Error as e:
-                        link_str = link if isinstance(link, str) else str(link)
-                        snippet = (
-                            (link_str[:200] + "…")
-                            if len(link_str) > 200
-                            else link_str
-                        )
-                        msg = f"Skipping discovered URL (database): {e} link={snippet!r}"
-                        all_warnings.append(msg)
-                        print(f"    WARNING: {msg}")
-                        continue
-
-                if links_to_insert:
-                    try:
-                        link_ids = _record_links_batch(cursor, links_to_insert)
-                        connection.commit()
-                        url_to_search_link_id.update(link_ids)
-                        all_urls.update(data["link"] for data in links_to_insert)
-                    except Error as e:
-                        try:
-                            connection.rollback()
-                        except Exception:
-                            pass
-                        msg = f"Batch insert failed for query {query}: {e}"
-                        all_warnings.append(msg)
-                        print(f"    WARNING: {msg}")
-
-                if incremental:
-                    print(f"    {entry_new} new results")
-                else:
-                    print(f"    {len(raw_links)} results found")
-
-                entry_duration = round(time.time() - entry_start, 3)
-                search_durations.append(entry_duration)
-
+        
+        for result in serp_results:
+            query_info = result["query_info"]
+            serp = result["serp"]
+            query = query_info["query"]
+            domain = query_info["domain"]
+            duration = serp["duration"]
+            entry_error = serp["error"]
+            entry_error_code = serp["error_code"]
+            
+            if entry_error:
+                all_errors.append(f"{query}: {entry_error}")
                 search_results.append({
                     "query": query,
                     "domain": domain,
-                    "duration_seconds": entry_duration,
+                    "duration_seconds": duration,
                     "num_tries": serp["num_tries"],
                     "num_failures": serp["num_failures"],
-                    "results_count": entry_new if incremental else len(raw_links),
-                    "error": None,
-                    "error_code": None,
+                    "results_count": 0,
+                    "error": entry_error,
+                    "error_code": entry_error_code,
                 })
-
+                search_durations.append(duration)
+                continue
+            
+            results_dict = serp["results"]
+            organic = results_dict.get("organic_results", []) if isinstance(results_dict, dict) else []
+            raw_links = [r.get("link") for r in organic if r.get("link")]
+            
+            if not raw_links:
+                entry_error = f"No organic results for query: {query}"
+                entry_error_code = ErrorCode.SEARCH_NO_RESULTS.value
+                all_warnings.append(entry_error)
+                search_results.append({
+                    "query": query,
+                    "domain": domain,
+                    "duration_seconds": duration,
+                    "num_tries": serp["num_tries"],
+                    "num_failures": serp["num_failures"],
+                    "results_count": 0,
+                    "error": entry_error,
+                    "error_code": entry_error_code,
+                })
+                search_durations.append(duration)
+                continue
+            
+            links_to_insert = []
+            links_seen_in_query = set()
+            entry_new = 0
+            
+            for link in raw_links:
+                try:
+                    if incremental:
+                        cursor.execute(
+                            "SELECT id FROM search_links WHERE link = %s LIMIT 1",
+                            (link,),
+                        )
+                        existing = cursor.fetchone()
+                        if existing:
+                            continue
+                    
+                    links_to_insert.append({
+                        "search_method": "SERPAPI",
+                        "keyword_search": query,
+                        "other_filters": None,
+                        "link": link,
+                        "processing_time": duration,
+                        "num_api_tries": serp["num_tries"],
+                        "num_api_failures": serp["num_failures"],
+                        "failure_type": None,
+                        "is_successful": 1,
+                    })
+                    links_seen_in_query.add(link)
+                    entry_new += 1
+                    
+                except Error as e:
+                    link_str = link if isinstance(link, str) else str(link)
+                    snippet = (link_str[:200] + "…") if len(link_str) > 200 else link_str
+                    all_warnings.append(f"Skipping discovered URL (database): {e} link={snippet!r}")
+                    continue
+            
+            if links_to_insert:
+                try:
+                    link_ids = _record_links_batch(cursor, links_to_insert)
+                    connection.commit()
+                    url_to_search_link_id.update(link_ids)
+                    all_urls.update(data["link"] for data in links_to_insert)
+                except Error as e:
+                    try:
+                        connection.rollback()
+                    except Exception:
+                        pass
+                    all_warnings.append(f"Batch insert failed for query {query}: {e}")
+            
+            search_durations.append(duration)
+            search_results.append({
+                "query": query,
+                "domain": domain,
+                "duration_seconds": duration,
+                "num_tries": serp["num_tries"],
+                "num_failures": serp["num_failures"],
+                "results_count": entry_new if incremental else len(raw_links),
+                "error": None,
+                "error_code": None,
+            })
+    
     except Error as e:
         err_msg = f"Database error during search discovery: {e}"
         print(f"  {err_msg}")
@@ -408,23 +430,20 @@ def discover_urls(searches, connection, incremental=False, settings=None):
                 cursor.close()
             except Exception:
                 pass
-
+    
     url_list = list(all_urls)
     overall_duration = round(time.time() - overall_start, 3)
 
     successful_searches = sum(1 for r in search_results if r["error"] is None)
     failed_searches = len(search_results) - successful_searches
-
+    
     timing = {
         "total_duration_seconds": overall_duration,
         "avg_per_search_seconds": round(sum(search_durations) / len(search_durations), 3) if search_durations else 0,
-        "min_search_seconds": round(min(search_durations), 3) if search_durations else 0,
-        "max_search_seconds": round(max(search_durations), 3) if search_durations else 0,
+        
     }
-
+    
     print(f"\n  Total unique URLs discovered: {len(url_list)}")
-    print(f"  Search timing: {overall_duration}s total, "
-          f"{timing['avg_per_search_seconds']}s avg per query\n")
 
     return {
         "urls": url_list,
