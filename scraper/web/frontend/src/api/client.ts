@@ -12,12 +12,14 @@ export async function fetchBills(params: {
   jurisdiction?: string;
   page?: number;
   per_page?: number;
+  sort?: 'ASC' | 'DESC';
 }): Promise<BillsResponse> {
   const searchParams = new URLSearchParams();
   if (params.jurisdiction) searchParams.set('jurisdiction', params.jurisdiction);
   if (params.page) searchParams.set('page', params.page.toString());
   if (params.per_page) searchParams.set('per_page', params.per_page.toString());
-  
+  if (params.sort) searchParams.set('sort', params.sort);
+
   const res = await fetch(`${API_BASE}/bills?${searchParams}`);
   if (!res.ok) throw new Error('Failed to fetch bills');
   return res.json();

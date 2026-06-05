@@ -8,6 +8,7 @@ interface Props {
   onPageChange: (page: number) => void;
   onBillSelect: (bill: Bill) => void;
   selectedBillId?: number;
+  sortBy?: 'ASC' | 'DESC';
 }
 
 // function to format bill url into something more readable
@@ -31,10 +32,10 @@ function formatUrl(url: string): string {
   }
 }
 
-export default function BillsList({ jurisdiction, page, onPageChange, onBillSelect, selectedBillId }: Props) {
+export default function BillsList({ jurisdiction, page, onPageChange, onBillSelect, selectedBillId, sortBy }: Props) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ['bills', jurisdiction, page],
-    queryFn: () => fetchBills({ jurisdiction: jurisdiction || undefined, page, per_page: 20 }),
+    queryKey: ['bills', jurisdiction, page, sortBy],
+    queryFn: () => fetchBills({ jurisdiction: jurisdiction || undefined, page, per_page: 20, sort: sortBy }),
   });
 
   if (isLoading) {
