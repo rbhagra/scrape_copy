@@ -63,7 +63,7 @@ export default function BillsBrowser() {
               onClose={() => setSelectedBill(null)}
             />
           ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+            <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
               <p className="text-gray-500">Select a bill to view details</p>
             </div>
           )}
