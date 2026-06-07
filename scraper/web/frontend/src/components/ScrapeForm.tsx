@@ -68,11 +68,11 @@ export default function ScrapeForm() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">New Scrape</h2>
+      <h2 className="text-2xl font-bold text-blue-900 mb-6">New Scrape</h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label htmlFor="terms" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="terms" className="block text-md font-bold text-gray-700 mb-1">
             Search Terms
           </label>
           <p className="text-sm text-gray-500 mb-2">
@@ -83,14 +83,14 @@ export default function ScrapeForm() {
             value={terms}
             onChange={(e) => setTerms(e.target.value)}
             rows={6}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="pl-2 pt-2 block w-full rounded-md border border-gray-200 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Artificial Intelligence&#10;AI Bills&#10;Algorithm"
           />
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-md font-bold text-gray-700">
               Jurisdictions
             </label>
             <div className="space-x-2">
@@ -110,7 +110,7 @@ export default function ScrapeForm() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-4 bg-gray-50 rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-4 bg-white rounded-lg border border-gray-200 shadow-sm max-h-64 overflow-y-auto">
             {Object.entries(PRESET_JURISDICTIONS).map(([domain, config]) => (
               <label
                 key={domain}
@@ -140,7 +140,7 @@ export default function ScrapeForm() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="startDate" className="block text-sm font-bold text-gray-700 mb-1">
               Start Date (optional)
             </label>
             <input
@@ -152,7 +152,7 @@ export default function ScrapeForm() {
             />
           </div>
           <div>
-            <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="endDate" className="block text-sm font-bold text-gray-700 mb-1">
               End Date (optional)
             </label>
             <input

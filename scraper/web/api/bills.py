@@ -6,6 +6,10 @@ bills_bp = Blueprint('bills', __name__)
 
 @bills_bp.route('/bills')
 def list_bills():
+    sort_by = request.args.get('sort', 'DESC')
+    if sort_by not in ['ASC', 'DESC']:
+        sort_by = 'DESC'
+
     db = get_db()
     if not db:
         return jsonify({'error': 'Database connection failed'}), 500
@@ -29,13 +33,14 @@ def list_bills():
         total = cursor.fetchone()['total']
         
         query = '''
-            SELECT p.id, p.source_url, p.search_term,
+        # Added title to select list
+            SELECT p.id, p.source_url, p.search_term, p.title,
                    SUBSTRING(p.clean_text, 1, 500) as excerpt,
                    h.domain, h.created_at
             FROM leg_processed p
             JOIN leg_html h ON p.raw_doc_id = h.search_id
             WHERE h.domain = %s
-            ORDER BY h.created_at DESC
+            ORDER BY h.created_at {sort_by}
             LIMIT %s OFFSET %s
         '''
         cursor.execute(query, (jurisdiction, per_page, offset))
@@ -49,12 +54,13 @@ def list_bills():
         total = cursor.fetchone()['total']
         
         query = '''
-            SELECT p.id, p.source_url, p.search_term,
+        # Added title to select list
+            SELECT p.id, p.source_url, p.search_term, p.title,
                    SUBSTRING(p.clean_text, 1, 500) as excerpt,
                    h.domain, h.created_at
             FROM leg_processed p
             JOIN leg_html h ON p.raw_doc_id = h.search_id
-            ORDER BY h.created_at DESC
+            ORDER BY h.created_at {sort_by}
             LIMIT %s OFFSET %s
         '''
         cursor.execute(query, (per_page, offset))
@@ -83,7 +89,8 @@ def get_bill(bill_id):
     
     cursor = db.cursor(dictionary=True)
     query = '''
-        SELECT p.id, p.source_url, p.clean_text, p.search_term,
+    # Added title to select list
+        SELECT p.id, p.source_url, p.clean_text, p.search_term, p.title,
                p.text_processing_method,
                h.domain, h.created_at
         FROM leg_processed p

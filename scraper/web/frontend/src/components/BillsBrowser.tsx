@@ -8,6 +8,7 @@ export default function BillsBrowser() {
   const [jurisdiction, setJurisdiction] = useState('');
   const [page, setPage] = useState(1);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [sortBy, setSortBy] = useState('DESC');
 
   const handleJurisdictionChange = (newJurisdiction: string) => {
     setJurisdiction(newJurisdiction);
@@ -18,12 +19,29 @@ export default function BillsBrowser() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Browse Bills</h2>
-        <div className="w-64">
-          <JurisdictionSelector
-            value={jurisdiction}
-            onChange={handleJurisdictionChange}
-          />
+        <h2 className="text-2xl font-bold text-blue-900">Browse Bills</h2>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <label htmlFor="sortBy" className="text-sm text-gray-500">
+              Sort by:
+            </label>
+            <select
+              id="sortBy"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'ASC' | 'DESC')}
+              className="block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            >
+              <option value="DESC">Newest First</option>
+              <option value="ASC">Oldest First</option> 
+            </select>
+          </div>
+
+          <div className="w-64">
+            <JurisdictionSelector
+              value={jurisdiction}
+              onChange={handleJurisdictionChange}
+            />
+          </div>
         </div>
       </div>
 
@@ -45,7 +63,7 @@ export default function BillsBrowser() {
               onClose={() => setSelectedBill(null)}
             />
           ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+            <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
               <p className="text-gray-500">Select a bill to view details</p>
             </div>
           )}
