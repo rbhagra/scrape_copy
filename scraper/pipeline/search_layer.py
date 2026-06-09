@@ -15,6 +15,7 @@ import serpapi
 
 load_dotenv()
 serp_api_key = os.getenv("serp_api_key")
+dbtype = os.getenv("db_type")
 
 
 def split_date_range_monthly(start_date_str, end_date_str):
@@ -167,6 +168,10 @@ def _record_links_batch(cursor, links_data):
         (search_method, keyword_search, other_filters, link,
          processing_time, num_api_tries, num_api_failures, failure_type, is_successful)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+    #sqlite query adaptation
+    if not (dbtype == "MySQL"):
+        insert_query = insert_query.replace("%s", "?")
+
     rows = [
         (
             data["search_method"],
@@ -181,17 +186,25 @@ def _record_links_batch(cursor, links_data):
         )
         for data in links_data
     ]
-    
+
     cursor.executemany(insert_query, rows)
 
     link_to_id = {}
     for link in [data["link"] for data in links_data]:
-        cursor.execute(
-            """SELECT id FROM search_links
-               WHERE link = %s AND is_successful = 1
-               ORDER BY id DESC LIMIT 1""",
-            (link,),
-        )
+        if (dbtype == "MySQL"):
+            cursor.execute(
+                """SELECT id FROM search_links
+                    WHERE link = %s AND is_successful = 1
+                    ORDER BY id DESC LIMIT 1""",
+                (link,),
+            )
+        else:
+            cursor.execute(
+                """SELECT id FROM search_links
+                    WHERE link = ? AND is_successful = 1
+                    ORDER BY id DESC LIMIT 1""",
+                (link,),
+            )
         row = cursor.fetchone()
         if row: # guard none
             link_to_id[link] = int(row[0])
@@ -362,10 +375,17 @@ def discover_urls(searches, connection, incremental=False, settings=None):
             for link in raw_links:
                 try:
                     if incremental:
-                        cursor.execute(
-                            "SELECT id FROM search_links WHERE link = %s LIMIT 1",
-                            (link,),
-                        )
+                        if dbtype == "MySQL":
+                            cursor.execute(
+                                "SELECT id FROM search_links WHERE link = %s LIMIT 1",
+                                (link,),
+                            )
+                        else:
+                            cursor.execute(
+                                "SELECT id FROM search_links WHERE link = ? LIMIT 1",
+                                (link,),
+                            )                           
+
                         existing = cursor.fetchone()
                         if existing:
                             continue

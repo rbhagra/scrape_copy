@@ -9,6 +9,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+dbtype = os.getenv("db_type")
 # LOGIC: If congress .gov, use previous algorithm, otherwise use regex searching of TXT. Can change this to also use regex for congress
 def extract_definitions_from_text(text, source_url=None):
     definitions = {}
@@ -68,7 +69,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
 
     try:
         from dbconnection import create_connection
-        connection = create_connection(host, user, pw, database)
+        connection = create_connection(host, user, pw, database, dbtype)
         cursor = connection.cursor()
             
         query = """
@@ -77,6 +78,10 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
             JOIN leg_html h ON p.raw_doc_id = h.search_id
             WHERE p.id = %s
         """
+        #query conversion for sqlite
+        if not (dbtype == "MySQL"):
+            query = query.replace("%", "?")
+
         cursor.execute(query, (processed_doc_id,))
         result = cursor.fetchone()
         if result:
