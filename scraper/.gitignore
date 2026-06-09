@@ -1,0 +1,33 @@
+#ignores env file
+
+
+#ignores env file
+.env
+.venv
+node_modules/
+__pycache__/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+node_modules/
+docker-compose.yml
+docker-compose.override.yml
+docker-compose.override.yml.bak
+docker-compose.override.yml.bak.1
+docker-compose.override.yml.bak.2
+docker-compose.override.yml.bak.3
+docker-compose.override.yml.bak.4
+docker-compose.override.yml.bak.5
+/web/frontend/node_modules/
+
+results/
+
+jobs/

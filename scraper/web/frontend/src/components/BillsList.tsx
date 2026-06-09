@@ -8,12 +8,34 @@ interface Props {
   onPageChange: (page: number) => void;
   onBillSelect: (bill: Bill) => void;
   selectedBillId?: number;
+  sortBy?: 'ASC' | 'DESC';
 }
 
-export default function BillsList({ jurisdiction, page, onPageChange, onBillSelect, selectedBillId }: Props) {
+// function to format bill url into something more readable
+function formatUrl(url: string): string {
+  try {
+    const { hostname, pathname } = new URL(url);
+    const parts = pathname.split('/').filter(Boolean);
+    // parts: ['bill', '118th congress', 'house bill', '1234']
+    // only works for urls like https://www.congress.gov/bill/118th-congress/house-bill/1234
+    const congress = parts[1]; // 118th congress
+    const type = parts[2];     // house bill
+    const number = parts[3];   // 1234
+    
+    if (congress && type && number) {
+      // returns hostname - type | number | congress
+      return `${hostname} - ${type.replace(/-/g, ' ')} | ${number} | ${congress.replace(/-/g, ' ')}`;
+    }
+    return `${hostname} - ${parts[parts.length - 1]}`;
+  } catch {
+    return url;
+  }
+}
+
+export default function BillsList({ jurisdiction, page, onPageChange, onBillSelect, selectedBillId, sortBy }: Props) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ['bills', jurisdiction, page],
-    queryFn: () => fetchBills({ jurisdiction: jurisdiction || undefined, page, per_page: 20 }),
+    queryKey: ['bills', jurisdiction, page, sortBy],
+    queryFn: () => fetchBills({ jurisdiction: jurisdiction || undefined, page, per_page: 20, sort: sortBy }),
   });
 
   if (isLoading) {
@@ -61,8 +83,8 @@ export default function BillsList({ jurisdiction, page, onPageChange, onBillSele
           >
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {bill.source_url}
+                <p className="text-sm font-medium text-blue-800 truncate">
+                  {formatUrl(bill.source_url)}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
                   {bill.domain} | {bill.search_term} | {new Date(bill.created_at).toLocaleDateString()}
