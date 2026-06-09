@@ -131,7 +131,7 @@ def load_config(config_path):
         settings = config.get("settings", {})
         discovery = discover_urls(config["searches"], connection, settings=settings)
     finally:
-        if connection and connection.is_connected():
+        if connection is not None:
             connection.close()
 
     config["URLs"] = discovery["urls"]
@@ -469,7 +469,7 @@ def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
             search_link_ids=search_link_ids,
         )
         
-        if connection.is_connected():
+        if connection is not None:
             connection.close()
         return exports
     

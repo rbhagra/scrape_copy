@@ -1,4 +1,5 @@
 from mysql.connector import Error
+import sqlite3
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
 from error_codes import ErrorCode, ERROR_DESCRIPTIONS
@@ -865,8 +866,10 @@ def retrieve_txt(html_id=None, driver=None, search_link_id=None):
         cursor = connection.cursor()
         
         if html_id:
-            query = """SELECT h.search_id, h.HTML, h.source_url 
+            query = """SELECT h.search_id, h.HTML, h.source_url
                        FROM leg_html h WHERE h.search_id = %s"""
+            if dbtype != "MySQL":
+                query = query.replace("%s", "?")
             cursor.execute(query, (html_id,))
         else:
             query = """SELECT h.search_id, h.HTML, h.source_url 
@@ -924,15 +927,15 @@ def retrieve_txt(html_id=None, driver=None, search_link_id=None):
         
         return _handle_generic_url(ctx, soup, driver=driver)
     
-    except Error as e:
+    except (Error, sqlite3.Error) as e:
         return _make_result(False, warning=f"Database error: {e}",
                           error_code=ErrorCode.DATABASE_ERROR.value)
     finally:
         try:
             if cursor:
-                cursor.fetchall() if cursor.with_rows else None
+                cursor.fetchall()
                 cursor.close()
-            if connection and connection.is_connected():
+            if connection is not None:
                 connection.close()
         except Exception:
             pass
@@ -952,20 +955,20 @@ def _resolve_search_link_fk(cursor, search_link_id, source_url):
         except (TypeError, ValueError):
             sid = None
     if sid is not None:
-        cursor.execute(
-            "SELECT id, keyword_search FROM search_links WHERE id = %s",
-            (sid,),
-        )
+        q1 = "SELECT id, keyword_search FROM search_links WHERE id = %s"
+        if dbtype != "MySQL":
+            q1 = q1.replace("%s", "?")
+        cursor.execute(q1, (sid,))
         row = cursor.fetchone()
         if row:
             return int(row[0]), row[1]
     if source_url:
-        cursor.execute(
-            """SELECT id, keyword_search FROM search_links
+        q2 = """SELECT id, keyword_search FROM search_links
                WHERE link = %s AND is_successful = 1
-               ORDER BY id DESC LIMIT 1""",
-            (source_url,),
-        )
+               ORDER BY id DESC LIMIT 1"""
+        if dbtype != "MySQL":
+            q2 = q2.replace("%s", "?")
+        cursor.execute(q2, (source_url,))
         row = cursor.fetchone()
         if row:
             return int(row[0]), row[1]
@@ -1027,7 +1030,7 @@ def store_txt(connection, raw_id, clean_text, source_url=None,
     finally:
         try:
             if cursor:
-                cursor.fetchall() if cursor.with_rows else None
+                cursor.fetchall()
                 cursor.close()
         except Exception:
             pass

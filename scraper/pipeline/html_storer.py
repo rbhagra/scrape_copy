@@ -3,6 +3,7 @@ import re
 import time
 from urllib.parse import urlparse
 from mysql.connector import Error
+import sqlite3
 from dbconnection import create_connection
 from error_codes import ErrorCode
 from constants import VERSION_PRIORITY, Timeouts
@@ -14,7 +15,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-dbtype = os.getenve("db_type")
+dbtype = os.getenv("db_type")
 congress_api_key = os.getenv("congress_api_key")
 
 
@@ -210,7 +211,7 @@ def store_html(url, driver=None, search_link_id=None):
         block_error_code, block_error_msg = classify_block_error(html_content)
 
     try:
-        connection = create_connection(host, user, pw, database)
+        connection = create_connection(host, user, pw, database, dbtype)
         cursor = connection.cursor()
 
         if fetch_failed:
@@ -257,19 +258,19 @@ def store_html(url, driver=None, search_link_id=None):
                 update_query = update_query.replace("%s", "?")
             cursor.execute(update_query, (processing_time, html_id))
             connection.commit()
-        except Error:
+        except (Error, sqlite3.Error):
             pass
 
         return {"html_id": html_id, "warning": None, "error": None, "error_code": None, "stage": "html_fetch_complete"}
 
-    except Error as e:
+    except (Error, sqlite3.Error) as e:
         return {"html_id": None, "warning": None, "error": f"Database error: {e}", "error_code": ErrorCode.DATABASE_ERROR.value, "stage": "html_fetch", "extraction_method": None}
     finally:
         try:
             if cursor:
-                cursor.fetchall() if cursor.with_rows else None
+                cursor.fetchall()
                 cursor.close()
-            if connection and connection.is_connected():
+            if connection is not None:
                 connection.close()
         except Exception:
             pass

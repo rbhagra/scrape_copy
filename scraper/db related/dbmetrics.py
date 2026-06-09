@@ -155,7 +155,7 @@ def dbmetrics(type = "general", par = ""):
     finally:
         if 'cursor' in locals():
             cursor.close()
-        if 'connection' in locals() and connection.is_connected():
+        if 'connection' in locals() and connection is not None:
             connection.close()
 
 #main function

@@ -11,6 +11,8 @@ from web.api.jurisdictions import jurisdictions_bp
 from web.api.bills import bills_bp
 from web.api.scrapes import scrapes_bp
 from web.api.db import init_app
+from apscheduler.schedulers.background import BackgroundScheduler
+from web.file_cleanup import file_cleanup
 
 load_dotenv()
 
@@ -26,6 +28,11 @@ app.config['DB_NAME'] = os.getenv('database_name')
 app.register_blueprint(jurisdictions_bp, url_prefix='/api')
 app.register_blueprint(bills_bp, url_prefix='/api')
 app.register_blueprint(scrapes_bp, url_prefix='/api')
+
+#file cleanup scheduling
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=file_cleanup, trigger='interval', hours=12)
+scheduler.start()
 
 
 @app.route('/api/health')
