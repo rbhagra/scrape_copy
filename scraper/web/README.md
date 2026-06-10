@@ -23,6 +23,7 @@ A web interface for browsing scraped bills and configuring new scrape jobs.
    user_name=your_user
    password=your_password
    database_name=your_database
+   db_type= "SQLite" or "MySQL"
    ```
 
 3. Start the Flask server:

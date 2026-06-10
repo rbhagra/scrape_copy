@@ -9,12 +9,14 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from mysql.connector import Error
+import sqlite3
 from dotenv import load_dotenv
 from error_codes import ErrorCode
 import serpapi
 
 load_dotenv()
 serp_api_key = os.getenv("serp_api_key")
+dbtype = os.getenv("db_type")
 
 
 def split_date_range_monthly(start_date_str, end_date_str):
@@ -167,6 +169,10 @@ def _record_links_batch(cursor, links_data):
         (search_method, keyword_search, other_filters, link,
          processing_time, num_api_tries, num_api_failures, failure_type, is_successful)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+    #sqlite query adaptation
+    if not (dbtype == "MySQL"):
+        insert_query = insert_query.replace("%s", "?")
+
     rows = [
         (
             data["search_method"],
@@ -181,17 +187,25 @@ def _record_links_batch(cursor, links_data):
         )
         for data in links_data
     ]
-    
+
     cursor.executemany(insert_query, rows)
 
     link_to_id = {}
     for link in [data["link"] for data in links_data]:
-        cursor.execute(
-            """SELECT id FROM search_links
-               WHERE link = %s AND is_successful = 1
-               ORDER BY id DESC LIMIT 1""",
-            (link,),
-        )
+        if (dbtype == "MySQL"):
+            cursor.execute(
+                """SELECT id FROM search_links
+                    WHERE link = %s AND is_successful = 1
+                    ORDER BY id DESC LIMIT 1""",
+                (link,),
+            )
+        else:
+            cursor.execute(
+                """SELECT id FROM search_links
+                    WHERE link = ? AND is_successful = 1
+                    ORDER BY id DESC LIMIT 1""",
+                (link,),
+            )
         row = cursor.fetchone()
         if row: # guard none
             link_to_id[link] = int(row[0])
@@ -362,10 +376,17 @@ def discover_urls(searches, connection, incremental=False, settings=None):
             for link in raw_links:
                 try:
                     if incremental:
-                        cursor.execute(
-                            "SELECT id FROM search_links WHERE link = %s LIMIT 1",
-                            (link,),
-                        )
+                        if dbtype == "MySQL":
+                            cursor.execute(
+                                "SELECT id FROM search_links WHERE link = %s LIMIT 1",
+                                (link,),
+                            )
+                        else:
+                            cursor.execute(
+                                "SELECT id FROM search_links WHERE link = ? LIMIT 1",
+                                (link,),
+                            )                           
+
                         existing = cursor.fetchone()
                         if existing:
                             continue
@@ -384,7 +405,7 @@ def discover_urls(searches, connection, incremental=False, settings=None):
                     links_seen_in_query.add(link)
                     entry_new += 1
                     
-                except Error as e:
+                except (Error, sqlite3.Error) as e:
                     link_str = link if isinstance(link, str) else str(link)
                     snippet = (link_str[:200] + "…") if len(link_str) > 200 else link_str
                     all_warnings.append(f"Skipping discovered URL (database): {e} link={snippet!r}")
@@ -396,7 +417,7 @@ def discover_urls(searches, connection, incremental=False, settings=None):
                     connection.commit()
                     url_to_search_link_id.update(link_ids)
                     all_urls.update(data["link"] for data in links_to_insert)
-                except Error as e:
+                except (Error, sqlite3.Error) as e:
                     try:
                         connection.rollback()
                     except Exception:
@@ -415,7 +436,7 @@ def discover_urls(searches, connection, incremental=False, settings=None):
                 "error_code": None,
             })
     
-    except Error as e:
+    except (Error, sqlite3.Error) as e:
         err_msg = f"Database error during search discovery: {e}"
         print(f"  {err_msg}")
         all_errors.append(err_msg)
@@ -426,7 +447,7 @@ def discover_urls(searches, connection, incremental=False, settings=None):
     finally:
         if cursor:
             try:
-                cursor.fetchall() if cursor.with_rows else None
+                cursor.fetchall()
                 cursor.close()
             except Exception:
                 pass
