@@ -15,7 +15,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-dbtype = os.getenv("db_type")
+use_MySQL = os.getenv("db_type") == "mysql"
 congress_api_key = os.getenv("congress_api_key")
 
 
@@ -211,7 +211,7 @@ def store_html(url, driver=None, search_link_id=None):
         block_error_code, block_error_msg = classify_block_error(html_content)
 
     try:
-        connection = create_connection(host, user, pw, database, dbtype)
+        connection = create_connection(host, user, pw, database, use_MySQL)
         cursor = connection.cursor()
 
         if fetch_failed:
@@ -219,7 +219,7 @@ def store_html(url, driver=None, search_link_id=None):
             insert_query = """INSERT INTO leg_html 
                 (source_url, HTML, domain, num_tries, num_failures, failure_type, is_successful, processing_time) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-            if not (dbtype == "MySQL"):
+            if not use_MySQL:
                 insert_query = insert_query.replace("%s", "?")
             cursor.execute(insert_query, (url, None, domain, num_tries, num_failures,
                                           ErrorCode.NETWORK_REQUEST_FAILED.value, 0, processing_time))
@@ -233,7 +233,7 @@ def store_html(url, driver=None, search_link_id=None):
             insert_query = """INSERT INTO leg_html 
                 (source_url, HTML, domain, num_tries, num_failures, failure_type, is_successful, processing_time) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-            if not (dbtype == "MySQL"):
+            if not use_MySQL:
                 insert_query = insert_query.replace("%s", "?")
             cursor.execute(insert_query, (url, html_content, domain, num_tries, num_failures,
                                           block_error_code.value, 0, processing_time))
@@ -245,7 +245,7 @@ def store_html(url, driver=None, search_link_id=None):
         insert_query = """INSERT INTO leg_html 
             (source_url, HTML, domain, num_tries, num_failures, is_successful) 
             VALUES (%s, %s, %s, %s, %s, %s)"""
-        if not (dbtype == "MySQL"):
+        if not use_MySQL:
             insert_query = insert_query.replace("%s", "?")
         cursor.execute(insert_query, (url, html_content, domain, num_tries, num_failures, 1))
         connection.commit()
@@ -254,7 +254,7 @@ def store_html(url, driver=None, search_link_id=None):
         processing_time = round(time.time() - start_time, 3)
         try:
             update_query = "UPDATE leg_html SET processing_time = %s WHERE search_id = %s"
-            if not (dbtype == "MySQL"):
+            if not use_MySQL:
                 update_query = update_query.replace("%s", "?")
             cursor.execute(update_query, (processing_time, html_id))
             connection.commit()

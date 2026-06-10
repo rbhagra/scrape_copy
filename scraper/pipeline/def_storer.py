@@ -10,7 +10,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-dbtype = os.getenv("db_type")
+use_MySQL = os.getenv("db_type") == "mysql"
 # LOGIC: If congress .gov, use previous algorithm, otherwise use regex searching of TXT. Can change this to also use regex for congress
 def extract_definitions_from_text(text, source_url=None):
     definitions = {}
@@ -70,7 +70,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
 
     try:
         from dbconnection import create_connection
-        connection = create_connection(host, user, pw, database, dbtype)
+        connection = create_connection(host, user, pw, database, use_MySQL)
         cursor = connection.cursor()
             
         query = """
@@ -80,7 +80,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
             WHERE p.id = %s
         """
         #query conversion for sqlite
-        if not (dbtype == "MySQL"):
+        if not use_MySQL:
             query = query.replace("%s", "?")
 
         cursor.execute(query, (processed_doc_id,))
@@ -107,7 +107,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
             print(f"No definitions found for processed_doc_id: {processed_doc_id} (text length: {len(clean_text) if clean_text else 0})")
             return None
         insert_query = "INSERT INTO definitions (processed_doc_id, term, definition_text) VALUES (%s, %s, %s)"
-        if not (dbtype == "MySQL"):
+        if not use_MySQL:
             insert_query = insert_query.replace("%s", "?")
         stored_count = 0
         

@@ -19,6 +19,7 @@ def create_scrape():
     terms = data.get('terms', [])
     jurisdictions = data.get('jurisdictions', {})
     start_date = data.get('start_date')
+    dbtype = data.get('db_type', 'sqlite')
     end_date = data.get('end_date')
     
     if not terms:
@@ -47,7 +48,7 @@ def create_scrape():
     
     try:
         start_time = time.time()
-        pid = start_scrape_job(job_id, config_path)
+        pid = start_scrape_job(job_id, config_path, dbtype)
         
         job_info = {
             'job_id': job_id,

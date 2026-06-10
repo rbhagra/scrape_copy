@@ -30,7 +30,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-dbtype = os.getenv("db_type")
+use_MySQL = os.getenv("db_type") == "mysql"
 incremental_run = os.getenv("incremental_run")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -121,7 +121,7 @@ def load_config(config_path):
     config = validate_config(config_path)
 
     from search_layer import discover_urls
-    connection = create_connection(host, user, pw, database, dbtype)
+    connection = create_connection(host, user, pw, database, use_MySQL)
     if connection is None:
         raise RuntimeError("Failed to connect to database for search discovery")
     try:
@@ -275,7 +275,7 @@ def run_pipeline(config, results_dir):
     url_timings = []  # Track per-URL processing times
 
     #setting up file for sqlite config
-    if not (dbtype == "MySQL"):
+    if not use_MySQL:
         sqlite_setup()
     
     print(f"# running pipeline, writing to results directory: {results_dir}")
@@ -456,7 +456,7 @@ def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
     """
     
     try:
-        connection = create_connection(host, user, pw, database, dbtype)
+        connection = create_connection(host, user, pw, database, use_MySQL)
         # checks conneciton to db
         if connection is None:
             print("Failed to connect to database for export")

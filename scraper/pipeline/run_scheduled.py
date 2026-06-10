@@ -37,7 +37,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-dbtype = os.getenv("db_type")
+use_MySQL = os.getenv("db_type") == "mysql"
 ## key for search params. Keep this incase exact phrasing changes
 SEARCH_PARAMS_JURISDICTIONS_KEY = "Jurisdictions and signal"
 
@@ -153,7 +153,7 @@ def retry_text_extractions(failed_text_rows):
 
 def with_connection(callback):
     """Open a DB connection, run callback(conn), and always close it."""
-    conn = create_connection(host, user, pw, database, dbtype)
+    conn = create_connection(host, user, pw, database, use_MySQL)
     if conn is None:
         raise RuntimeError("Failed to connect to database")
     try:

@@ -25,7 +25,7 @@ def get_log_metadata(log_path):
     }
 
 
-def start_scrape_job(job_id, config_path):
+def start_scrape_job(job_id, config_path, dbtype):
     job_dir = os.path.join(JOBS_DIR, job_id)
     log_path = os.path.join(job_dir, 'output.log')
 
@@ -37,6 +37,7 @@ def start_scrape_job(job_id, config_path):
 
 
     env = os.environ.copy()
+    env['db_type'] = dbtype.lower()
     extra_paths = [PIPELINE_DIR, PROJECT_ROOT, DB_DIR]
     existing = env.get('PYTHONPATH', '')
     env['PYTHONPATH'] = os.pathsep.join(

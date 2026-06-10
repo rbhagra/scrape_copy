@@ -38,7 +38,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
-dbtype = os.getenv("db_type")
+use_MySQL = os.getenv("db_type") == "mysql"
 congress_api_key = os.getenv("congress_api_key")
 adobe_client_id = os.getenv("adobe_client_id")
 adobe_client_secret = os.getenv("adobe_client_secret")
@@ -862,13 +862,13 @@ def retrieve_txt(html_id=None, driver=None, search_link_id=None):
     
     try:
         from dbconnection import create_connection
-        connection = create_connection(host, user, pw, database, dbtype)
+        connection = create_connection(host, user, pw, database, use_MySQL)
         cursor = connection.cursor()
         
         if html_id:
             query = """SELECT h.search_id, h.HTML, h.source_url
                        FROM leg_html h WHERE h.search_id = %s"""
-            if dbtype != "MySQL":
+            if not use_MySQL:
                 query = query.replace("%s", "?")
             cursor.execute(query, (html_id,))
         else:
@@ -956,7 +956,7 @@ def _resolve_search_link_fk(cursor, search_link_id, source_url):
             sid = None
     if sid is not None:
         q1 = "SELECT id, keyword_search FROM search_links WHERE id = %s"
-        if dbtype != "MySQL":
+        if not use_MySQL:
             q1 = q1.replace("%s", "?")
         cursor.execute(q1, (sid,))
         row = cursor.fetchone()
@@ -966,7 +966,7 @@ def _resolve_search_link_fk(cursor, search_link_id, source_url):
         q2 = """SELECT id, keyword_search FROM search_links
                WHERE link = %s AND is_successful = 1
                ORDER BY id DESC LIMIT 1"""
-        if dbtype != "MySQL":
+        if not use_MySQL:
             q2 = q2.replace("%s", "?")
         cursor.execute(q2, (source_url,))
         row = cursor.fetchone()
@@ -993,7 +993,7 @@ def store_txt(connection, raw_id, clean_text, source_url=None,
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
         #query conversion for sqlite
-        if (dbtype != "MySQL"):
+        if not use_MySQL:
             insert_query = insert_query.replace("%s", "?")
 
         cursor.execute(

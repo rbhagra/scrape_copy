@@ -4,10 +4,10 @@ import os
 import sqlite3
 from flask import Flask, session
 
-def create_connection(host_name="", user_name="", password="", database_name="", dbtype="sqlite"):
+def create_connection(host_name="", user_name="", password="", database_name="", use_MySQL=False):
     connection = None
     #creating connection to our normal mysql db
-    if (dbtype == "mysql"):
+    if use_MySQL:
 
         #creating connection
         try:
@@ -20,7 +20,7 @@ def create_connection(host_name="", user_name="", password="", database_name="",
         except Error as e:
             print(f"Error while connecting to MySQL: {e}")
             return None
-    #db_type not set to mysql defaults to an sqlite style database
+    #use_MySQL=False defaults to an sqlite style database
     else:
         
         #grabbing userid
@@ -29,7 +29,6 @@ def create_connection(host_name="", user_name="", password="", database_name="",
 
         current_user = session['user_id']
 
-        
         #making folder and subfile
         DB_FOLDER = "temp_dbs"
 
