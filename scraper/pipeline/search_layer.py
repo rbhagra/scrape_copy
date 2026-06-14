@@ -170,7 +170,7 @@ def _record_links_batch(cursor, links_data):
          processing_time, num_api_tries, num_api_failures, failure_type, is_successful)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
     #sqlite query adaptation
-    if not (dbtype == "MySQL"):
+    if not (dbtype.lower() == "mysql"):
         insert_query = insert_query.replace("%s", "?")
 
     rows = [
@@ -192,7 +192,7 @@ def _record_links_batch(cursor, links_data):
 
     link_to_id = {}
     for link in [data["link"] for data in links_data]:
-        if (dbtype == "MySQL"):
+        if (dbtype.lower() == "mysql"):
             cursor.execute(
                 """SELECT id FROM search_links
                     WHERE link = %s AND is_successful = 1
@@ -262,18 +262,24 @@ def discover_urls(searches, connection, incremental=False, settings=None):
         start_date_str = settings.get("Start Date")
         end_date_str = settings.get("End Date")
     
-    # Split date range into monthly increments
-    date_ranges = []
-    if start_date_str and end_date_str:
-        try:
-            date_ranges = split_date_range_monthly(start_date_str, end_date_str)
-        except ValueError as e:
-            all_warnings.append(f"Invalid date format in settings: {e}. Searching with base dates.")
-            date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
-    else:
-        # Default to base dates if dates not provided or incomplete
-        date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
+    # # Split date range into monthly increments
+    # date_ranges = []
+    # if start_date_str and end_date_str:
+    #     try:
+    #         date_ranges = split_date_range_monthly(start_date_str, end_date_str)
+    #     except ValueError as e:
+    #         all_warnings.append(f"Invalid date format in settings: {e}. Searching with base dates.")
+    #         date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
+    # else:
+    #     # Default to base dates if dates not provided or incomplete
+    #     date_ranges = split_date_range_monthly(start_date_str_base, end_date_str_base)
+    # Single date range instead of monthly chunks
 
+    # temp stuff just to bypass dates logic, probably will get rid of that 
+    if start_date_str and end_date_str:
+            start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date_str, "%Y-%m-%d")
+            date_ranges = [(start_dt, end_dt)]
     # Phase 1: Build all queries upfront
     from constants import MAXIMUM_RESULTS
     all_queries = []
@@ -376,7 +382,7 @@ def discover_urls(searches, connection, incremental=False, settings=None):
             for link in raw_links:
                 try:
                     if incremental:
-                        if dbtype == "MySQL":
+                        if dbtype.lower() == "mysql":
                             cursor.execute(
                                 "SELECT id FROM search_links WHERE link = %s LIMIT 1",
                                 (link,),

@@ -17,6 +17,7 @@ import os
 import sys
 from dotenv import load_dotenv
 
+import path_setup  # noqa: F401
 from dbconnection import create_connection
 from txt_storer import retrieve_txt
 from resume_utils import (

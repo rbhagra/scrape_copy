@@ -146,7 +146,7 @@ def classify_block_error(html_content):
     
     
     if "_cf_chl_opt" in lower or "/cdn-cgi/challenge-platform/" in lower:
-        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Blocked by clouflare)"
+        return ErrorCode.CLOUDFLARE_ATTENTION_REQUIRED, "Blocked by clouflare"
     
     # Cloudflare explicit block pages
     if "attention required" in lower and "cloudflare" in lower:
@@ -219,7 +219,7 @@ def store_html(url, driver=None, search_link_id=None):
             insert_query = """INSERT INTO leg_html 
                 (source_url, HTML, domain, num_tries, num_failures, failure_type, is_successful, processing_time) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-            if not (dbtype == "MySQL"):
+            if not (dbtype.lower() == "mysql"):
                 insert_query = insert_query.replace("%s", "?")
             cursor.execute(insert_query, (url, None, domain, num_tries, num_failures,
                                           ErrorCode.NETWORK_REQUEST_FAILED.value, 0, processing_time))
@@ -233,7 +233,7 @@ def store_html(url, driver=None, search_link_id=None):
             insert_query = """INSERT INTO leg_html 
                 (source_url, HTML, domain, num_tries, num_failures, failure_type, is_successful, processing_time) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-            if not (dbtype == "MySQL"):
+            if not (dbtype.lower() == "mysql"):
                 insert_query = insert_query.replace("%s", "?")
             cursor.execute(insert_query, (url, html_content, domain, num_tries, num_failures,
                                           block_error_code.value, 0, processing_time))
@@ -245,7 +245,7 @@ def store_html(url, driver=None, search_link_id=None):
         insert_query = """INSERT INTO leg_html 
             (source_url, HTML, domain, num_tries, num_failures, is_successful) 
             VALUES (%s, %s, %s, %s, %s, %s)"""
-        if not (dbtype == "MySQL"):
+        if not (dbtype.lower() == "mysql"):
             insert_query = insert_query.replace("%s", "?")
         cursor.execute(insert_query, (url, html_content, domain, num_tries, num_failures, 1))
         connection.commit()
@@ -254,7 +254,7 @@ def store_html(url, driver=None, search_link_id=None):
         processing_time = round(time.time() - start_time, 3)
         try:
             update_query = "UPDATE leg_html SET processing_time = %s WHERE search_id = %s"
-            if not (dbtype == "MySQL"):
+            if not (dbtype.lower() == "mysql"):
                 update_query = update_query.replace("%s", "?")
             cursor.execute(update_query, (processing_time, html_id))
             connection.commit()

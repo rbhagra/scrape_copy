@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
+import path_setup  # noqa: F401
 from sqlite_setup import sqlite_setup
 from dbconnection import create_connection
 from html_storer import store_html
@@ -275,7 +276,7 @@ def run_pipeline(config, results_dir):
     url_timings = []  # Track per-URL processing times
 
     #setting up file for sqlite config
-    if not (dbtype == "MySQL"):
+    if not (dbtype.lower() == "mysql"):
         sqlite_setup()
     
     print(f"# running pipeline, writing to results directory: {results_dir}")

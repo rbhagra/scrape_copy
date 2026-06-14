@@ -80,7 +80,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
             WHERE p.id = %s
         """
         #query conversion for sqlite
-        if not (dbtype == "MySQL"):
+        if not (dbtype.lower() == "mysql"):
             query = query.replace("%s", "?")
 
         cursor.execute(query, (processed_doc_id,))
@@ -107,7 +107,7 @@ def store_defs(processed_doc_id, clean_text, source_url=None):
             print(f"No definitions found for processed_doc_id: {processed_doc_id} (text length: {len(clean_text) if clean_text else 0})")
             return None
         insert_query = "INSERT INTO definitions (processed_doc_id, term, definition_text) VALUES (%s, %s, %s)"
-        if not (dbtype == "MySQL"):
+        if not (dbtype.lower() == "mysql"):
             insert_query = insert_query.replace("%s", "?")
         stored_count = 0
         
