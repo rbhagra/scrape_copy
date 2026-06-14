@@ -2,12 +2,11 @@ import mysql.connector
 from mysql.connector import Error
 import os
 import sqlite3
-from flask import Flask, session
 
 def create_connection(host_name="", user_name="", password="", database_name="", dbtype="sqlite"):
     connection = None
     #creating connection to our normal mysql db
-    if (dbtype == "mysql"):
+    if (dbtype == "mysql") or (dbtype == "MySQL"):
 
         #creating connection
         try:
@@ -20,20 +19,18 @@ def create_connection(host_name="", user_name="", password="", database_name="",
         except Error as e:
             print(f"Error while connecting to MySQL: {e}")
             return None
-    #db_type not set to mysql defaults to an sqlite style database
+    #db_type not set to mysql defaults to an sqlite database
     else:
         
-        #grabbing userid
-        if 'user_id' not in session:
-            NameError("SQLite-related error: user_id not generated")
+        #grabbing job_id from environment (set by job_runner subprocess)
+        job_id = os.getenv('SCRAPE_JOB_ID')
+        if not job_id:
+            raise ValueError("SQLite-related error: SCRAPE_JOB_ID not set in environment")
 
-        current_user = session['user_id']
-
-        
         #making folder and subfile
         DB_FOLDER = "temp_dbs"
 
-        db_filename = f"scrape_data_{current_user}.db"
+        db_filename = f"scrape_data_{job_id}.db"
         db_filepath = os.path.join(DB_FOLDER, db_filename)
 
         #connection to sqlite

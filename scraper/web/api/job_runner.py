@@ -5,14 +5,102 @@ import subprocess
 import psutil
 import time
 import glob
+import sqlite3
 
 JOBS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'jobs'))
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 PIPELINE_DIR = os.path.join(PROJECT_ROOT, 'pipeline')
 
 DB_DIR = os.path.join(PROJECT_ROOT, 'db related')
+TEMP_DBS_DIR = os.path.join(PIPELINE_DIR, 'temp_dbs')
 RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results', 'bills')
 STALL_AFTER_SECONDS = 180
+
+
+def get_job_sqlite_path(job_id):
+    """Get the path to a job's SQLite database file."""
+    return os.path.join(TEMP_DBS_DIR, f"scrape_data_{job_id}.db")
+
+
+def query_job_results(job_id, page=1, per_page=50):
+    """
+    Query results from a job's SQLite database.
+    
+    Returns:
+        dict with 'bills', 'total', pagination info, or None if db doesn't exist
+    """
+    db_path = get_job_sqlite_path(job_id)
+    if not os.path.exists(db_path):
+        return None
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get total count
+        cursor.execute('SELECT COUNT(*) as total FROM leg_processed WHERE is_successful = 1')
+        total = cursor.fetchone()['total']
+        
+        # Get paginated results
+        offset = (page - 1) * per_page
+        cursor.execute('''
+            SELECT p.id, p.source_url, p.search_term,
+                   SUBSTR(p.clean_text, 1, 500) as excerpt,
+                   h.domain, h.created_at
+            FROM leg_processed p
+            JOIN leg_html h ON p.raw_doc_id = h.search_id
+            WHERE p.is_successful = 1
+            ORDER BY h.created_at DESC
+            LIMIT ? OFFSET ?
+        ''', (per_page, offset))
+        
+        rows = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return {
+            'bills': rows,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total + per_page - 1) // per_page if total > 0 else 0
+        }
+    except Exception as e:
+        print(f"Error querying job SQLite database: {e}")
+        return None
+
+
+def get_job_bill(job_id, bill_id):
+    """
+    Get a single bill from a job's SQLite database.
+    
+    Returns:
+        dict with bill data, or None if not found
+    """
+    db_path = get_job_sqlite_path(job_id)
+    if not os.path.exists(db_path):
+        return None
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT p.id, p.source_url, p.clean_text, p.search_term,
+                   p.text_processing_method, h.domain, h.created_at
+            FROM leg_processed p
+            JOIN leg_html h ON p.raw_doc_id = h.search_id
+            WHERE p.id = ?
+        ''', (bill_id,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        return dict(row) if row else None
+    except Exception as e:
+        print(f"Error querying job bill: {e}")
+        return None
 
 
 def get_log_metadata(log_path):
@@ -44,8 +132,10 @@ def start_scrape_job(job_id, config_path):
     )
     # Ensure pipeline output appears in job logs immediately.
     env['PYTHONUNBUFFERED'] = '1'
-    # Set db_type for the subprocess independently of the Flask server's .env
+    # Set db_type to SQLite to override usual use of MySQL
     env['db_type'] = 'SQLite'
+    # Pass job_id so SQLite database is named per-job
+    env['SCRAPE_JOB_ID'] = job_id
 
     with open(log_path, 'w') as log_file:
         process = subprocess.Popen(

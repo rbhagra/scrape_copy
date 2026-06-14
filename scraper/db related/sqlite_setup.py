@@ -1,7 +1,5 @@
 import sqlite3
 import os
-from flask import session
-import uuid
 
 
 # 1. leg_html
@@ -157,17 +155,17 @@ def table_create(connection):
 #function to setup sqlite dbs that runs on the pipeline
 def sqlite_setup():
     '''
-    Checks to see if a folder for the current user exists, if not, creates a new folder based on userid thats stored in server memory
+    Checks to see if a db for the current job exists, if not, creates a new one based on SCRAPE_JOB_ID env var
     '''
     
-    #creating users subfile path
+    #creating job subfile path
     DB_FOLDER = "temp_dbs"
 
-    if 'user_id' not in session:
-        session['user_id'] = str(uuid.uuid())
-    current_user = session['user_id']
+    job_id = os.getenv('SCRAPE_JOB_ID')
+    if not job_id:
+        raise ValueError("SQLite-related error: SCRAPE_JOB_ID not set in environment")
 
-    db_filename = f"scrape_data{current_user}.db"
+    db_filename = f"scrape_data_{job_id}.db"
     db_filepath = os.path.join(DB_FOLDER, db_filename)
   
     if not os.path.exists(db_filepath):

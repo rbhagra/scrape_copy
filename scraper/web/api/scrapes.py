@@ -3,7 +3,7 @@ import json
 import uuid
 import time
 from flask import Blueprint, jsonify, request, current_app
-from web.api.job_runner import start_scrape_job, get_job_status
+from web.api.job_runner import start_scrape_job, get_job_status, query_job_results, get_job_bill
 
 scrapes_bp = Blueprint('scrapes', __name__)
 
@@ -94,3 +94,39 @@ def list_scrapes():
                     })
     
     return jsonify(jobs)
+
+
+@scrapes_bp.route('/scrapes/<job_id>/bills')
+def get_job_bills(job_id):
+    """Get bills from a specific job's SQLite database."""
+    job_dir = os.path.join(JOBS_DIR, job_id)
+    
+    if not os.path.exists(job_dir):
+        return jsonify({'error': 'Job not found'}), 404
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(per_page, 100)
+    
+    results = query_job_results(job_id, page=page, per_page=per_page)
+    
+    if results is None:
+        return jsonify({'error': 'Results database not found for this job'}), 404
+    
+    return jsonify(results)
+
+
+@scrapes_bp.route('/scrapes/<job_id>/bills/<int:bill_id>')
+def get_job_bill_detail(job_id, bill_id):
+    """Get a single bill from a specific job's SQLite database."""
+    job_dir = os.path.join(JOBS_DIR, job_id)
+    
+    if not os.path.exists(job_dir):
+        return jsonify({'error': 'Job not found'}), 404
+    
+    bill = get_job_bill(job_id, bill_id)
+    
+    if bill is None:
+        return jsonify({'error': 'Bill not found'}), 404
+    
+    return jsonify(bill)
