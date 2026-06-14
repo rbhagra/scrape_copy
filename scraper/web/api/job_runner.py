@@ -44,6 +44,8 @@ def start_scrape_job(job_id, config_path):
     )
     # Ensure pipeline output appears in job logs immediately.
     env['PYTHONUNBUFFERED'] = '1'
+    # Set db_type for the subprocess independently of the Flask server's .env
+    env['db_type'] = 'SQLite'
 
     with open(log_path, 'w') as log_file:
         process = subprocess.Popen(
