@@ -6,6 +6,15 @@ interface Props {
   onClose: () => void;
 }
 
+function formatSearchTerm(searchTerm: string): string {
+  const parts = searchTerm.match(/"[^"]+"|site:\S+|inurl:\S+/g);
+  if (parts) {
+    return parts.join(', ');
+  } else {
+    return searchTerm;
+  }
+}
+
 export default function BillDetail({ billId, onClose }: Props) {
   const { data: bill, isLoading, error } = useQuery({
     queryKey: ['bill', billId],
@@ -76,12 +85,12 @@ export default function BillDetail({ billId, onClose }: Props) {
           </div>
           <div>
             <dt className="text-gray-500">Search Term</dt>
-            <dd className="mt-1 text-gray-900">{bill.search_term}</dd>
+            <dd className="mt-1 text-gray-900">{formatSearchTerm(bill.search_term)}</dd>
           </div>
           <div>
             <dt className="text-gray-500">Scraped At</dt>
             <dd className="mt-1 text-gray-900">
-              {new Date(bill.created_at).toLocaleString()}
+              {new Date(bill.created_at).toLocaleString()} EST
             </dd>
           </div>
           {bill.text_processing_method && (

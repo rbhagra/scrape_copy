@@ -23,11 +23,16 @@ export const handlers = [
     const page = Number(url.searchParams.get('page') || '1');
     const perPage = Number(url.searchParams.get('per_page') || '20');
     const jurisdiction = url.searchParams.get('jurisdiction');
+    const sort = url.searchParams.get('sort') ?? 'DESC';
 
-    let list = mockBills;
+    let list = [...mockBills];
     if (jurisdiction) {
-      list = mockBills.filter((b) => b.domain === jurisdiction);
+      list = list.filter((b) => b.domain === jurisdiction);
     }
+    list.sort((a, b) => {
+      const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return sort === 'ASC' ? diff : -diff;
+    });
 
     const total = list.length;
     const total_pages = Math.max(1, Math.ceil(total / perPage));

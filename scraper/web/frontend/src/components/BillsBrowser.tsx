@@ -8,7 +8,7 @@ export default function BillsBrowser() {
   const [jurisdiction, setJurisdiction] = useState('');
   const [page, setPage] = useState(1);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
-  const [sortBy, setSortBy] = useState('DESC');
+  const [sortBy, setSortBy] = useState<'ASC' | 'DESC'>('DESC');
 
   const handleJurisdictionChange = (newJurisdiction: string) => {
     setJurisdiction(newJurisdiction);
@@ -28,7 +28,10 @@ export default function BillsBrowser() {
             <select
               id="sortBy"
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'ASC' | 'DESC')}
+              onChange={(e) => {
+                setSortBy(e.target.value as 'ASC' | 'DESC');
+                setPage(1);
+              }}
               className="block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               <option value="DESC">Newest First</option>
@@ -53,6 +56,7 @@ export default function BillsBrowser() {
             onPageChange={setPage}
             onBillSelect={setSelectedBill}
             selectedBillId={selectedBill?.id}
+            sortBy={sortBy}
           />
         </div>
         
