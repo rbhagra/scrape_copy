@@ -11,26 +11,61 @@ interface Props {
   sortBy?: 'ASC' | 'DESC';
 }
 
-// function to format bill url into something more readable
-function formatUrl(url: string): string {
+function formatBillCode(bill: { source_url: string; title?: string }): string {
   try {
-    const { hostname, pathname } = new URL(url);
+    const { pathname } = new URL(bill.source_url);
     const parts = pathname.split('/').filter(Boolean);
-    // parts: ['bill', '118th congress', 'house bill', '1234']
-    // only works for urls like https://www.congress.gov/bill/118th-congress/house-bill/1234
-    const congress = parts[1]; // 118th congress
-    const type = parts[2];     // house bill
-    const number = parts[3];   // 1234
-    
-    if (congress && type && number) {
-      // returns hostname - type | number | congress
-      return `${hostname} - ${type.replace(/-/g, ' ')} | ${number} | ${congress.replace(/-/g, ' ')}`;
+
+    // congress.gov: /bill/118th-congress/house-bill/1234
+    if (parts[0] === 'bill' && parts.length >= 4) {
+      const type = parts[2];
+      const number = parts[3];
+
+      const typeMap: Record<string, string> = {
+        'house-bill': 'H.B.',
+        'senate-bill': 'S.B.',
+        'house-resolution': 'H.Res.',
+        'senate-resolution': 'S.Res.',
+        'house-joint-resolution': 'H.J.Res.',
+        'senate-joint-resolution': 'S.J.Res.',
+        'house-concurrent-resolution': 'H.Con.Res.',
+        'senate-concurrent-resolution': 'S.Con.Res.',
+      };
+
+      const prefix = typeMap[type];
+      if (prefix && number) {
+        return `${prefix}${number}`;
+      }
     }
-    return `${hostname} - ${parts[parts.length - 1]}`;
+
+    // for non-bill URLs (ex: federalregister.gov, etc.)
+    const slug = parts[parts.length - 1];
+    return slug || bill.source_url;
   } catch {
-    return url;
+    return bill.source_url;
   }
 }
+
+// function to format bill url into something more readable
+// function formatUrl(url: string): string {
+  // try {
+  //   const { hostname, pathname } = new URL(url);
+  //   const parts = pathname.split('/').filter(Boolean);
+  //   // parts: ['bill', '118th congress', 'house bill', '1234']
+  //   // only works for urls like https://www.congress.gov/bill/118th-congress/house-bill/1234
+  //   const congress = parts[1]; // 118th congress
+  //   const type = parts[2];     // house bill
+  //   const number = parts[3];   // 1234
+    
+  //   if (congress && type && number) {
+  //     // returns hostname - type | number | congress
+  //     return `${hostname} - ${type.replace(/-/g, ' ')} | ${number} | ${congress.replace(/-/g, ' ')}`;
+  //   }
+  //   return `${hostname} - ${parts[parts.length - 1]}`;
+  // } catch {
+  //   return url;
+  // }
+// }
 
 export default function BillsList({ jurisdiction, page, onPageChange, onBillSelect, selectedBillId, sortBy }: Props) {
   const { data, isLoading, error } = useQuery({
@@ -84,7 +119,7 @@ export default function BillsList({ jurisdiction, page, onPageChange, onBillSele
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-blue-800 truncate">
-                  {formatUrl(bill.source_url)}
+                  {formatBillCode(bill)}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
                   {bill.domain} | {bill.search_term} | {new Date(bill.created_at).toLocaleDateString()}
