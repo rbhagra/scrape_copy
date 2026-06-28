@@ -32,7 +32,7 @@ def list_bills():
         cursor.execute(count_query, (jurisdiction,))
         total = cursor.fetchone()['total']
         
-        query = '''
+        query = f'''
         # Added title to select list
             SELECT p.id, p.source_url, p.search_term, p.title,
                    SUBSTRING(p.clean_text, 1, 500) as excerpt,
@@ -53,7 +53,7 @@ def list_bills():
         cursor.execute(count_query)
         total = cursor.fetchone()['total']
         
-        query = '''
+        query = f'''
         # Added title to select list
             SELECT p.id, p.source_url, p.search_term, p.title,
                    SUBSTRING(p.clean_text, 1, 500) as excerpt,

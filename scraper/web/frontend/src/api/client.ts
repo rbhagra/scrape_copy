@@ -20,7 +20,9 @@ export async function fetchBills(params: {
   if (params.per_page) searchParams.set('per_page', params.per_page.toString());
   if (params.sort) searchParams.set('sort', params.sort);
 
-  const res = await fetch(`${API_BASE}/bills?${searchParams}`);
+  const requestUrl = `${API_BASE}/bills?${searchParams}`;
+  const res = await fetch(requestUrl);
+  
   if (!res.ok) throw new Error('Failed to fetch bills');
   return res.json();
 }
