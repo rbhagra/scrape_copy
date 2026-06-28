@@ -17,6 +17,7 @@ import os
 import sys
 from dotenv import load_dotenv
 
+import path_setup  # noqa: F401
 from dbconnection import create_connection
 from txt_storer import retrieve_txt
 from resume_utils import (
@@ -37,6 +38,7 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+dbtype = os.getenv("db_type")
 ## key for search params. Keep this incase exact phrasing changes
 SEARCH_PARAMS_JURISDICTIONS_KEY = "Jurisdictions and signal"
 
@@ -152,7 +154,7 @@ def retry_text_extractions(failed_text_rows):
 
 def with_connection(callback):
     """Open a DB connection, run callback(conn), and always close it."""
-    conn = create_connection(host, user, pw, database)
+    conn = create_connection(host, user, pw, database, dbtype)
     if conn is None:
         raise RuntimeError("Failed to connect to database")
     try:

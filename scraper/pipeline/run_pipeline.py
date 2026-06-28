@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
+import path_setup  # noqa: F401
+from sqlite_setup import sqlite_setup
 from dbconnection import create_connection
 from html_storer import store_html
 from export_utils import export_all_tables, compute_domain_metrics
@@ -29,6 +31,8 @@ pw = os.getenv("password")
 host = os.getenv("host_name")
 user = os.getenv("user_name")
 database = os.getenv("database_name")
+dbtype = os.getenv("db_type")
+incremental_run = os.getenv("incremental_run")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results" / "bills"
@@ -118,7 +122,7 @@ def load_config(config_path):
     config = validate_config(config_path)
 
     from search_layer import discover_urls
-    connection = create_connection(host, user, pw, database)
+    connection = create_connection(host, user, pw, database, dbtype)
     if connection is None:
         raise RuntimeError("Failed to connect to database for search discovery")
     try:
@@ -128,7 +132,7 @@ def load_config(config_path):
         settings = config.get("settings", {})
         discovery = discover_urls(config["searches"], connection, settings=settings)
     finally:
-        if connection and connection.is_connected():
+        if connection is not None:
             connection.close()
 
     config["URLs"] = discovery["urls"]
@@ -270,6 +274,10 @@ def run_pipeline(config, results_dir):
     errors = []
     warnings = []
     url_timings = []  # Track per-URL processing times
+
+    #setting up file for sqlite config
+    if not (dbtype.lower() == "mysql"):
+        sqlite_setup()
     
     print(f"# running pipeline, writing to results directory: {results_dir}")
     print(f"{'#'*70}\n")
@@ -449,7 +457,7 @@ def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
     """
     
     try:
-        connection = create_connection(host, user, pw, database)
+        connection = create_connection(host, user, pw, database, dbtype)
         # checks conneciton to db
         if connection is None:
             print("Failed to connect to database for export")
@@ -462,7 +470,7 @@ def export_results_to_csv(results_dir, html_ids=None, search_link_ids=None):
             search_link_ids=search_link_ids,
         )
         
-        if connection.is_connected():
+        if connection is not None:
             connection.close()
         return exports
     

@@ -25,10 +25,12 @@ host_name=localhost
 user_name=your_username
 password=your_password
 database_name=your_database
+db_type="SQLite" or "MySQL"
 serp_api_key=your_serpapi_key
 # if using congress api:
 congress_api_key=your_congress_api_key
 app_port=port_on_your_machine_to_run_app
+incremental_run = disallow_duplicate_links_T/F
 ```
 
 If a port is not defined in .env, program will deafult to 5001
@@ -46,6 +48,10 @@ This creates four tables:
 - `leg_html` - Raw HTML storage
 - `leg_processed` - Extracted plain text
 - `definitions` - Extracted term definitions
+
+### Dataframe Setup
+
+When running a scrape that returns to an SQLite dataframe, the dataframe is created and formatted natively in run_pipeline file. The SQLite dataframe has the same tables and substructures as the standard MySQL structure mentioned above.
 
 ---
 
@@ -121,6 +127,8 @@ Results are saved to `results/bills/{timestamp}/` containing:
 
 ## Architecture
 
+Note that architecture maintains parity between both database types
+
 ```
 flowchart TD
     Config[Config JSON] --> RunPipeline[run_pipeline.py]
@@ -158,6 +166,9 @@ flowchart TD
 | `alg.py` | XML-based definitions classifier for Congress.gov bill XML format |
 | `dbsetup.py` | Database schema creation and migration |
 | `dbconnection.py` | MySQL connection management |
+| `dbsetup.py` | Database schema creation and migration for MySQL |
+| `sqlite_setup.py` | Dataframe file creation and formatting for SQLite |
+| `dbconnection.py` | MySQL and SQLite connection management |
 | `main.py` | Local testing utility — not used for pipeline execution |
 
 ---
@@ -500,9 +511,10 @@ Open page shown in second terminal
                 │                               │
                 ▼                               ▼
 ┌───────────────────────────┐    ┌──────────────────────────────┐
-│         MySQL DB          │    │     run_scheduled.py         │
-│  (leg_html, leg_processed)│    │    (spawned as subprocess)   │
-└───────────────────────────┘    └──────────────────────────────┘
+│     MySQL or SQLite DB    │    │     run_scheduled.py         │
+│    (toggleable in .env)   │    │   (spawned as subprocess)    │
+│  (leg_html, leg_processed)│    └──────────────────────────────┘
+└───────────────────────────┘ 
 ```
 
 ### API Endpoints
@@ -575,7 +587,9 @@ web/
 │   │   └── types.ts             # TypeScript types
 │   ├── vite.config.ts           # Dev server + proxy config
 │   └── package.json
-├── requirements.txt     # Python dependencies (flask, flask-cors, psutil)
+├── requirements.txt     # Python dependencies 
+(flask, flask-cors, psutil)
+├── file_cleanup.py 
 └── README.md
 ```
 
@@ -585,6 +599,8 @@ web/
 - `flask` - Web framework
 - `flask-cors` - Cross-origin resource sharing
 - `psutil` - Process monitoring for job status
+- `APScheduler` - Automates server database cleaning
+
 
 **Frontend (Node.js):**
 - React 18+ with TypeScript
